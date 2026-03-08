@@ -1,0 +1,22 @@
+# Worktrees
+.worktrees/
+
+# Environment variables
+.env*.local
+
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Build output
+dist/
+build/
+
+# OS
+.DS_Store
+
+# Vercel
+.vercel
