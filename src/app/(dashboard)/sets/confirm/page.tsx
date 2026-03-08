@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
 interface SetData {
@@ -13,7 +13,7 @@ interface SetData {
   retired: boolean
 }
 
-export default function ConfirmSetPage() {
+function ConfirmSetContent() {
   const params = useSearchParams()
   const router = useRouter()
   const setNumber = params.get('set_number') ?? ''
@@ -180,5 +180,17 @@ export default function ConfirmSetPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function ConfirmSetPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#1A1A1A] flex items-center justify-center">
+        <p className="text-gray-400 animate-pulse">Loading…</p>
+      </div>
+    }>
+      <ConfirmSetContent />
+    </Suspense>
   )
 }
