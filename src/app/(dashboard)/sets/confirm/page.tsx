@@ -34,6 +34,16 @@ function ConfirmSetContent() {
   })
   const [duplicateWarning, setDuplicateWarning] = useState(false)
 
+  // Reset all state when set number changes (queue navigation reuses the same component)
+  useEffect(() => {
+    setSetData(null)
+    setLoading(true)
+    setError('')
+    setSaving(false)
+    setDuplicateWarning(false)
+    setForm({ purchased_from: '', purchase_price_usd: '', purchase_date: '', condition: 'sealed', notes: '' })
+  }, [setNumber])
+
   useEffect(() => {
     if (!setNumber) return
     const controller = new AbortController()
@@ -79,9 +89,10 @@ function ConfirmSetContent() {
       if (queueList.length > 0) {
         const [next, ...rest] = queueList
         const remaining = rest.join(',')
-        router.push(`/sets/confirm?set_number=${next}${remaining ? `&queue=${remaining}` : ''}`)
+        // Hard navigate to force full state reset for next set in queue
+        window.location.href = `/sets/confirm?set_number=${next}${remaining ? `&queue=${remaining}` : ''}`
       } else {
-        router.push('/dashboard')
+        window.location.href = '/dashboard'
       }
     } else {
       const data = await res.json()
