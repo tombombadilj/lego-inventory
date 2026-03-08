@@ -36,10 +36,19 @@ function ConfirmSetContent() {
 
   useEffect(() => {
     if (!setNumber) return
-    fetch(`/api/lego-status?set_number=${setNumber}`)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 12000)
+    fetch(`/api/lego-status?set_number=${setNumber}`, { signal: controller.signal })
       .then(r => r.ok ? r.json() : Promise.reject(r))
       .then(data => { setSetData(data); setLoading(false) })
-      .catch(() => { setError(`Set ${setNumber} not found. Check the number and try again.`); setLoading(false) })
+      .catch((e) => {
+        const msg = e?.name === 'AbortError'
+          ? `Lookup timed out for set ${setNumber}.`
+          : `Set ${setNumber} not found on Rebrickable.`
+        setError(msg)
+        setLoading(false)
+      })
+      .finally(() => clearTimeout(timer))
   }, [setNumber])
 
   async function handleAdd(force = false) {
@@ -89,9 +98,25 @@ function ConfirmSetContent() {
 
   if (error) return (
     <div className="min-h-screen bg-[#1A1A1A] flex items-center justify-center p-4">
-      <div className="text-center">
-        <p className="text-red-400 font-medium">{error}</p>
-        <button onClick={() => router.back()} className="mt-4 text-sm text-gray-400 hover:text-white">← Go back</button>
+      <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-6 max-w-sm w-full text-center space-y-4">
+        <p className="text-2xl">⚠️</p>
+        <p className="text-white font-medium">Couldn't look up set {setNumber}</p>
+        <p className="text-gray-400 text-sm">{error}</p>
+        <p className="text-gray-500 text-xs">You can still add it to your inventory — the set details will be filled in later.</p>
+        <div className="flex flex-col gap-2 pt-1">
+          <button
+            onClick={() => {
+              setError('')
+              setSetData({ id: '', set_number: setNumber, name: `Set ${setNumber}`, theme: null, piece_count: null, retail_price_usd: null, image_url: null, retired: false })
+              setLoading(false)
+            }}
+            className="w-full bg-[#DA291C] text-white py-2 rounded-lg text-sm font-semibold hover:bg-red-700">
+            Add anyway (no details)
+          </button>
+          <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-white">
+            ← Go back
+          </button>
+        </div>
       </div>
     </div>
   )
