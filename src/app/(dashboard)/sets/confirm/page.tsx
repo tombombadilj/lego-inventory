@@ -17,6 +17,9 @@ function ConfirmSetContent() {
   const params = useSearchParams()
   const router = useRouter()
   const setNumber = params.get('set_number') ?? ''
+  const queue = params.get('queue') ?? ''
+  const queueList = queue ? queue.split(',').filter(Boolean) : []
+  const queueCount = queueList.length
 
   const [setData, setSetData] = useState<SetData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -64,7 +67,13 @@ function ConfirmSetContent() {
     }
 
     if (res.ok) {
-      router.push('/dashboard')
+      if (queueList.length > 0) {
+        const [next, ...rest] = queueList
+        const remaining = rest.join(',')
+        router.push(`/sets/confirm?set_number=${next}${remaining ? `&queue=${remaining}` : ''}`)
+      } else {
+        router.push('/dashboard')
+      }
     } else {
       const data = await res.json()
       setError(data.error ?? 'Failed to save')
@@ -90,7 +99,14 @@ function ConfirmSetContent() {
   return (
     <div className="min-h-screen bg-[#1A1A1A] p-4">
       <div className="max-w-lg mx-auto">
-        <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-white mb-4 block">← Back</button>
+        <div className="flex items-center justify-between mb-4">
+          <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-white">← Back</button>
+          {queueCount > 0 && (
+            <span className="text-sm text-gray-400 bg-[#2A2A2A] border border-gray-700 px-3 py-1 rounded-full">
+              {queueCount} more set{queueCount > 1 ? 's' : ''} after this
+            </span>
+          )}
+        </div>
 
         {/* Set info */}
         {setData && (
@@ -175,7 +191,7 @@ function ConfirmSetContent() {
 
           <button onClick={() => handleAdd(false)} disabled={saving}
             className="w-full bg-[#DA291C] text-white py-2.5 px-4 rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50">
-            {saving ? 'Adding…' : 'Add to Inventory'}
+            {saving ? 'Adding…' : queueCount > 0 ? `Add & Continue (${queueCount} left)` : 'Add to Inventory'}
           </button>
         </div>
       </div>

@@ -97,15 +97,32 @@ export default function UploadPage() {
           {loading && <p className="text-gray-400 text-sm animate-pulse">Scanning for set numbers…</p>}
           {detected.length > 0 && (
             <div>
-              <p className="text-sm font-medium text-white mb-2">Detected {detected.length} set number{detected.length > 1 ? 's' : ''}:</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-white">Detected {detected.length} set number{detected.length > 1 ? 's' : ''}:</p>
+                {detected.length > 1 && (
+                  <button
+                    onClick={() => {
+                      const [first, ...rest] = detected
+                      const queue = rest.join(',')
+                      router.push(`/sets/confirm?set_number=${first}${queue ? `&queue=${queue}` : ''}`)
+                    }}
+                    className="text-sm bg-[#DA291C] text-white px-3 py-1.5 rounded-lg font-medium hover:bg-red-700">
+                    Add all {detected.length} →
+                  </button>
+                )}
+              </div>
               <ul className="space-y-2">
-                {detected.map(n => (
+                {detected.map((n, i) => (
                   <li key={n} className="flex items-center justify-between bg-[#2A2A2A] px-3 py-2 rounded-lg border border-gray-700">
                     <span className="font-mono text-white">{n}</span>
                     <button
-                      onClick={() => router.push(`/sets/confirm?set_number=${n}`)}
+                      onClick={() => {
+                        const rest = detected.slice(i + 1)
+                        const queue = rest.join(',')
+                        router.push(`/sets/confirm?set_number=${n}${queue ? `&queue=${queue}` : ''}`)
+                      }}
                       className="text-sm text-[#F5C400] hover:text-yellow-300 font-medium">
-                      Add to inventory →
+                      Add →
                     </button>
                   </li>
                 ))}
