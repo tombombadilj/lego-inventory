@@ -10,10 +10,16 @@ interface CsvPreview {
   total: number
 }
 
+interface DetectedSet {
+  setNumber: string
+  checked: boolean
+  qty: number
+}
+
 export default function UploadPage() {
   const [tab, setTab] = useState<Tab>('photo')
   const [preview, setPreview] = useState<string | null>(null)
-  const [detected, setDetected] = useState<string[]>([])
+  const [detected, setDetected] = useState<DetectedSet[]>([])
   const [loading, setLoading] = useState(false)
   const [manualInput, setManualInput] = useState('')
   const [csvPreview, setCsvPreview] = useState<CsvPreview | null>(null)
@@ -21,6 +27,20 @@ export default function UploadPage() {
   const [importLoading, setImportLoading] = useState(false)
   const [importMessage, setImportMessage] = useState('')
   const router = useRouter()
+
+  function buildQueue(sets: DetectedSet[]) {
+    // Expand selected sets by qty: [{setNumber:'75192', qty:2}] → ['75192','75192']
+    return sets
+      .filter(s => s.checked)
+      .flatMap(s => Array(s.qty).fill(s.setNumber)) as string[]
+  }
+
+  function startQueue(sets: DetectedSet[]) {
+    const queue = buildQueue(sets)
+    if (queue.length === 0) return
+    const [first, ...rest] = queue
+    router.push(`/sets/confirm?set_number=${first}${rest.length ? `&queue=${rest.join(',')}` : ''}`)
+  }
 
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -32,7 +52,7 @@ export default function UploadPage() {
     form.append('image', file)
     const res = await fetch('/api/ocr', { method: 'POST', body: form })
     const data = await res.json()
-    setDetected(data.setNumbers ?? [])
+    setDetected((data.setNumbers ?? []).map((n: string) => ({ setNumber: n, checked: true, qty: 1 })))
     setLoading(false)
   }
 
@@ -97,36 +117,57 @@ export default function UploadPage() {
           {loading && <p className="text-gray-400 text-sm animate-pulse">Scanning for set numbers…</p>}
           {detected.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-white">Detected {detected.length} set number{detected.length > 1 ? 's' : ''}:</p>
-                {detected.length > 1 && (
-                  <button
-                    onClick={() => {
-                      const [first, ...rest] = detected
-                      const queue = rest.join(',')
-                      router.push(`/sets/confirm?set_number=${first}${queue ? `&queue=${queue}` : ''}`)
-                    }}
-                    className="text-sm bg-[#DA291C] text-white px-3 py-1.5 rounded-lg font-medium hover:bg-red-700">
-                    Add all {detected.length} →
-                  </button>
-                )}
-              </div>
-              <ul className="space-y-2">
-                {detected.map((n, i) => (
-                  <li key={n} className="flex items-center justify-between bg-[#2A2A2A] px-3 py-2 rounded-lg border border-gray-700">
-                    <span className="font-mono text-white">{n}</span>
-                    <button
-                      onClick={() => {
-                        const rest = detected.slice(i + 1)
-                        const queue = rest.join(',')
-                        router.push(`/sets/confirm?set_number=${n}${queue ? `&queue=${queue}` : ''}`)
-                      }}
-                      className="text-sm text-[#F5C400] hover:text-yellow-300 font-medium">
-                      Add →
-                    </button>
+              <p className="text-sm font-medium text-white mb-2">
+                Detected {detected.length} set number{detected.length > 1 ? 's' : ''} — select which to add:
+              </p>
+              <ul className="space-y-2 mb-4">
+                {detected.map((item, i) => (
+                  <li key={`${item.setNumber}-${i}`}
+                    className={`flex items-center gap-3 bg-[#2A2A2A] px-3 py-2.5 rounded-lg border transition-colors ${
+                      item.checked ? 'border-gray-600' : 'border-gray-800 opacity-50'
+                    }`}>
+                    {/* Checkbox */}
+                    <input
+                      type="checkbox"
+                      checked={item.checked}
+                      onChange={e => setDetected(d => d.map((s, j) => j === i ? { ...s, checked: e.target.checked } : s))}
+                      className="w-4 h-4 accent-[#DA291C] flex-shrink-0"
+                    />
+                    {/* Set number */}
+                    <span className="font-mono text-white flex-1">{item.setNumber}</span>
+                    {/* Quantity picker */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setDetected(d => d.map((s, j) => j === i ? { ...s, qty: Math.max(1, s.qty - 1) } : s))}
+                        disabled={!item.checked || item.qty <= 1}
+                        className="w-7 h-7 rounded-lg bg-gray-700 text-white text-lg leading-none flex items-center justify-center hover:bg-gray-600 disabled:opacity-30">
+                        −
+                      </button>
+                      <span className="text-white font-medium w-4 text-center">{item.qty}</span>
+                      <button
+                        onClick={() => setDetected(d => d.map((s, j) => j === i ? { ...s, qty: s.qty + 1 } : s))}
+                        disabled={!item.checked}
+                        className="w-7 h-7 rounded-lg bg-gray-700 text-white text-lg leading-none flex items-center justify-center hover:bg-gray-600 disabled:opacity-30">
+                        +
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
+              {/* Summary + start button */}
+              {(() => {
+                const selected = detected.filter(s => s.checked)
+                const totalCopies = selected.reduce((sum, s) => sum + s.qty, 0)
+                return selected.length > 0 ? (
+                  <button
+                    onClick={() => startQueue(detected)}
+                    className="w-full bg-[#DA291C] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors">
+                    Add {totalCopies} {totalCopies === 1 ? 'copy' : 'copies'} across {selected.length} set{selected.length > 1 ? 's' : ''} →
+                  </button>
+                ) : (
+                  <p className="text-center text-sm text-gray-500">Select at least one set to continue</p>
+                )
+              })()}
             </div>
           )}
           {!loading && detected.length === 0 && preview && (
