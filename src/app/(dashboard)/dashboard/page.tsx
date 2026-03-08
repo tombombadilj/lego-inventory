@@ -91,10 +91,11 @@ export default async function DashboardPage() {
           </div>
           <span className="text-white font-semibold">LEGO Inventory</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <Link href="/upload" className="bg-[#DA291C] text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">
             + Add Sets
           </Link>
+          <Link href="/settings" className="text-gray-400 hover:text-white text-sm transition-colors" title="Settings">⚙️</Link>
           <LogoutButton />
         </div>
       </nav>
