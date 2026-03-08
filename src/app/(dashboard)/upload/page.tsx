@@ -90,8 +90,12 @@ export default function UploadPage() {
   ]
 
   return (
+    <div className="min-h-screen bg-[#1A1A1A]">
+    <nav className="bg-[#2A2A2A] border-b border-gray-700 px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
+      <button onClick={() => router.push('/dashboard')} className="text-gray-400 hover:text-white text-sm">← Dashboard</button>
+      <span className="text-white font-semibold">Add LEGO Sets</span>
+    </nav>
     <div className="max-w-lg mx-auto p-4">
-      <h1 className="text-xl font-bold text-white mb-4">Add LEGO Sets</h1>
 
       {/* Tabs */}
       <div className="flex border-b border-gray-700 mb-6">
@@ -250,6 +254,7 @@ export default function UploadPage() {
           )}
         </div>
       )}
+    </div>
     </div>
   )
 }
