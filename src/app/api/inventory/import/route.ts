@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { parseLegoCsv } from '@/lib/csv'
+import { fetchSetFromRebrickable } from '@/lib/rebrickable'
+
+function serviceSupabase() {
+  return createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -29,19 +38,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ valid, invalid, total: valid.length + invalid.length })
   }
 
-  // Confirm mode — look up set IDs and bulk insert
+  // Confirm mode — look up or auto-fetch set IDs, then bulk insert
   const results: { set_number: string; status: string; reason?: string }[] = []
+  const svc = serviceSupabase()
 
   for (const row of valid) {
-    const { data: set } = await supabase
+    // Check if set is already cached in the DB
+    let { data: set } = await supabase
       .from('sets')
       .select('id')
       .eq('set_number', row.set_number)
       .single()
 
+    // Not cached — auto-fetch from Rebrickable and upsert
     if (!set) {
-      results.push({ set_number: row.set_number, status: 'skipped', reason: 'Set not found — fetch via /api/lego-status first' })
-      continue
+      const setData = await fetchSetFromRebrickable(row.set_number)
+      if (!setData) {
+        results.push({ set_number: row.set_number, status: 'skipped', reason: 'Set not found on Rebrickable — check the set number' })
+        continue
+      }
+
+      const { data: upserted, error: upsertError } = await svc
+        .from('sets')
+        .upsert({ ...setData, last_fetched_at: new Date().toISOString() }, { onConflict: 'set_number' })
+        .select('id')
+        .single()
+
+      if (upsertError || !upserted) {
+        results.push({ set_number: row.set_number, status: 'error', reason: upsertError?.message ?? 'Failed to save set data' })
+        continue
+      }
+
+      set = upserted
     }
 
     const { error } = await supabase
