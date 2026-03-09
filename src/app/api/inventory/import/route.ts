@@ -13,6 +13,14 @@ export async function POST(request: NextRequest) {
 
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
 
+  // Validate file type and size
+  if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
+    return NextResponse.json({ error: 'Only CSV files are accepted.' }, { status: 400 })
+  }
+  if (file.size > 1 * 1024 * 1024) {
+    return NextResponse.json({ error: 'CSV too large. Maximum size is 1 MB.' }, { status: 400 })
+  }
+
   const text = await file.text()
   const { valid, invalid } = parseLegoCsv(text)
 
