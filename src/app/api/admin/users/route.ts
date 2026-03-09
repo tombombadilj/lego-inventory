@@ -41,8 +41,9 @@ export async function POST(request: NextRequest) {
   }
 
   const { data, error } = await serviceSupabase().auth.admin.inviteUserByEmail(email, {
-    // Store role in app_metadata so users cannot self-modify it
-    app_metadata: { role: 'member' },
+    // `data` maps to user_metadata in the invite flow; role is promoted to
+    // app_metadata by the admin updateUserById call after the user accepts
+    data: { role: 'member' },
     redirectTo: `${siteUrl}/auth/callback`,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
