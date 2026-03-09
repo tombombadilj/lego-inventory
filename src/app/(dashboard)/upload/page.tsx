@@ -75,12 +75,18 @@ export default function UploadPage() {
     form.append('confirm', 'true')
     const res = await fetch('/api/inventory/import', { method: 'POST', body: form })
     const data = await res.json()
-    const saved = data.results?.filter((r: { status: string }) => r.status === 'saved').length ?? 0
-    setImportMessage(`${saved} sets imported successfully.`)
+    const results: { status: string; set_number: string; reason?: string }[] = data.results ?? []
+    const saved = results.filter(r => r.status === 'saved').length
+    const skipped = results.filter(r => r.status === 'skipped').length
+    const errors = results.filter(r => r.status === 'error').length
+    let msg = `${saved} set${saved !== 1 ? 's' : ''} imported successfully.`
+    if (skipped > 0) msg += ` ${skipped} skipped (set number not found on Rebrickable).`
+    if (errors > 0) msg += ` ${errors} failed.`
+    setImportMessage(msg)
     setCsvPreview(null)
     setCsvFile(null)
     setImportLoading(false)
-    setTimeout(() => router.push('/dashboard'), 1500)
+    if (saved > 0) setTimeout(() => router.push('/dashboard'), 2000)
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -183,16 +189,51 @@ export default function UploadPage() {
       {/* Manual entry tab */}
       {tab === 'manual' && (
         <div className="space-y-4">
-          <p className="text-sm text-gray-400">Enter a LEGO set number directly.</p>
+          <p className="text-sm text-gray-400">Enter a LEGO set number to look it up and add it to your inventory.</p>
+
+          {/* Duplicate hint */}
+          <div className="bg-[#2A2A2A] border border-gray-700 rounded-lg px-3 py-2.5 text-xs text-gray-400">
+            💡 <span className="text-gray-300 font-medium">Have multiple copies of the same set?</span> Set the quantity below — you'll fill in purchase details for each copy one at a time.
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">Set Number</label>
             <input type="text" placeholder="e.g. 75192" value={manualInput}
               onChange={e => setManualInput(e.target.value.trim())}
-              onKeyDown={e => e.key === 'Enter' && manualInput && router.push(`/sets/confirm?set_number=${manualInput}`)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && manualInput) {
+                  const qty = parseInt((document.getElementById('manual-qty') as HTMLInputElement)?.value ?? '1') || 1
+                  const queue = Array(qty).fill(manualInput)
+                  const [first, ...rest] = queue
+                  router.push(`/sets/confirm?set_number=${first}${rest.length ? `&queue=${rest.join(',')}` : ''}`)
+                }
+              }}
               className="w-full bg-[#1A1A1A] border border-gray-600 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#DA291C]" />
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">How many copies?</label>
+            <div className="flex items-center gap-3">
+              <input
+                id="manual-qty"
+                type="number"
+                min={1}
+                max={10}
+                defaultValue={1}
+                className="w-24 bg-[#1A1A1A] border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#DA291C]"
+              />
+              <span className="text-gray-500 text-xs">You'll enter purchase details for each copy separately</span>
+            </div>
+          </div>
+
           <button
-            onClick={() => router.push(`/sets/confirm?set_number=${manualInput}`)}
+            onClick={() => {
+              if (!manualInput) return
+              const qty = parseInt((document.getElementById('manual-qty') as HTMLInputElement)?.value ?? '1') || 1
+              const queue = Array(qty).fill(manualInput)
+              const [first, ...rest] = queue
+              router.push(`/sets/confirm?set_number=${first}${rest.length ? `&queue=${rest.join(',')}` : ''}`)
+            }}
             disabled={!manualInput}
             className="w-full bg-[#DA291C] text-white py-2 px-4 rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50">
             Look Up Set
