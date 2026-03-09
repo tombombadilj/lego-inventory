@@ -19,7 +19,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const { data, error } = await serviceSupabase().auth.admin.updateUserById(id, {
-    user_metadata: { role },
+    app_metadata: { role },
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

@@ -18,7 +18,8 @@ export async function GET() {
   return NextResponse.json(users.map(u => ({
     id: u.id,
     email: u.email,
-    role: u.user_metadata?.role ?? 'member',
+    // Read role from app_metadata (server-writable only)
+    role: u.app_metadata?.role ?? 'member',
     created_at: u.created_at,
   })))
 }
@@ -29,9 +30,20 @@ export async function POST(request: NextRequest) {
   const { email } = await request.json()
   if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 })
 
+  // Fail loudly if NEXT_PUBLIC_SITE_URL is not configured — invite links must
+  // point to the real production URL, never localhost
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+  if (!siteUrl) {
+    return NextResponse.json(
+      { error: 'NEXT_PUBLIC_SITE_URL is not configured. Set it in your environment variables.' },
+      { status: 500 }
+    )
+  }
+
   const { data, error } = await serviceSupabase().auth.admin.inviteUserByEmail(email, {
-    data: { role: 'member' },
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/auth/callback`,
+    // Store role in app_metadata so users cannot self-modify it
+    app_metadata: { role: 'member' },
+    redirectTo: `${siteUrl}/auth/callback`,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
