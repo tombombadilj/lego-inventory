@@ -1,5 +1,5 @@
-// LEGO set numbers are 4-6 digits, optionally followed by -1
-const SET_NUMBER_REGEX = /\b(\d{4,6})(?:-\d)?\b/g
+// LEGO set numbers are 4-5 digits, do not start with 0, optionally followed by -1
+const SET_NUMBER_REGEX = /\b([1-9]\d{3,4})(?:-\d)?\b/g
 
 export function extractSetNumbers(text: string): string[] {
   const matches = [...text.matchAll(SET_NUMBER_REGEX)]
