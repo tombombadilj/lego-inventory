@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
-import type { InventoryItem, GroupedSet } from '@/types/inventory'
+import type { GroupedSet } from '@/types/inventory'
 
 interface Props {
   groupedSets: GroupedSet[]
@@ -75,10 +76,12 @@ export default function SearchableInventory({ groupedSets }: Props) {
               className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 flex items-center gap-4 hover:border-gray-500 transition-colors block"
             >
               {group.image_url ? (
-                <img
+                <Image
                   src={group.image_url}
                   alt={group.name}
-                  className="w-16 h-16 object-contain rounded-lg bg-white p-1 flex-shrink-0"
+                  width={64}
+                  height={64}
+                  className="object-contain rounded-lg bg-white p-1 flex-shrink-0"
                 />
               ) : (
                 <div className="w-16 h-16 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
