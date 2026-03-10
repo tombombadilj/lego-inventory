@@ -292,18 +292,27 @@ export default function SetDetailPage() {
 
                 {/* Demand row */}
                 <div className="flex items-center gap-3 mb-3 text-xs text-gray-400">
-                  <span>Demand score: <span className="text-white font-medium">{snapshot.demand_score}/100</span></span>
+                  <span
+                    title="How scarce sealed copies are vs. the total market. Higher = fewer New listings relative to Used, meaning sealed sets are being absorbed quickly."
+                    className="cursor-help border-b border-dashed border-gray-600"
+                  >
+                    Demand score
+                  </span>
+                  <span className="text-white font-medium">{snapshot.demand_score}/100</span>
                   <span className="text-gray-600">·</span>
                   <span>{snapshot.listings_count} active New listings</span>
                 </div>
 
                 {/* Demand bar */}
-                <div className="w-full bg-gray-700 rounded-full h-1.5 mb-3">
+                <div className="w-full bg-gray-700 rounded-full h-1.5 mb-2">
                   <div
                     className={`h-1.5 rounded-full transition-all ${snapshot.demand_score >= 60 ? 'bg-green-400' : snapshot.demand_score >= 30 ? 'bg-yellow-400' : 'bg-orange-400'}`}
                     style={{ width: `${snapshot.demand_score}%` }}
                   />
                 </div>
+                <p className="text-gray-600 text-xs mb-3">
+                  How scarce sealed copies are vs. the total market — higher means fewer New listings relative to Used, so sealed sets are being absorbed quickly.
+                </p>
 
                 {/* Recommendation */}
                 <div className={`flex items-start gap-2 p-3 rounded-lg border ${PILL_STYLES[recommendation]}`}>
