@@ -44,7 +44,7 @@ A mobile-friendly web application to inventory sealed LEGO sets stored in a pers
 | File Storage | Supabase Storage (uploaded box photos) |
 | OCR | Google Cloud Vision API |
 | Set Metadata | Rebrickable API |
-| Resale Prices | BrickLink (API or scraping) + eBay |
+| Resale Prices | eBay Browse API (completed/sold listings) |
 | Hosting | Vercel |
 | Secrets | `.env.local` files (never committed); `.env.example` for documentation |
 
@@ -76,7 +76,7 @@ QA and production are two completely separate Supabase projects. Switching betwe
 ## Database Schema
 
 ### `users`
-Managed by Supabase Auth. Extended with a `role` field (`admin` / `viewer`). New users require admin approval before accessing the app.
+Managed by Supabase Auth. Extended with a `role` field (`admin` / `member`). New users are invited by an admin via email and default to `member` on first login. All authenticated users can view and manage all inventory — roles only gate user management features.
 
 ### `sets`
 Shared LEGO set reference data, fetched from Rebrickable and cached. One row per LEGO set number, regardless of how many copies you own.
@@ -165,14 +165,81 @@ Per-user notification events.
 
 Each component is independently testable before the next is started.
 
+### Phase 1 — Core Inventory (build now)
+Tasks 1–7 plus user management. Fully usable without price data. Any UI element that would show price data displays a clean "coming soon" placeholder instead of breaking.
+
+### Phase 2 — Prices & Alerts (when eBay API is approved)
+Tasks 8–9. Adds resale price tracking, demand scores, price history charts, sell recommendations, and configurable alerts.
+
 ### 1. Auth & User Management
-Supabase Auth with invite-based access. Admin users approve new members. Fully testable before any inventory features exist.
+Supabase Auth with invite-based access. All routes require login — unauthenticated visitors are immediately redirected to `/login`, and all API routes return `401` without a valid session.
+
+**Roles:**
+- `admin` — full access to everything including `/admin/users` (invite users, change roles, remove users)
+- `member` — full access to all inventory data (view, add, edit, delete any set); cannot manage users
+
+**Shared inventory:** All authenticated users see the same inventory. The `added_by` field records who entered each item for reference, but there is no per-user data isolation.
+
+**User management flow:** Admin visits `/admin/users` → enters an email → Supabase sends an invite email → user sets password and lands on dashboard as `member` → admin can promote to `admin` or remove from the same page.
+
+Fully testable before any inventory features exist.
 
 ### 2. Photo Upload & OCR
-Mobile-friendly upload page. Image sent to Google Cloud Vision API. Detected set numbers presented for user confirmation before any data is saved. Testable with dummy images using a standalone `/api/ocr` endpoint.
+Mobile-friendly upload page with three entry methods:
+- **Photo upload** — image sent to Google Cloud Vision API, detected set numbers presented for confirmation
+- **Manual entry** — text input to type a set number directly (skips OCR entirely)
+- **CSV upload** — user uploads a CSV file with columns `set_number, purchased_from, purchase_price, purchase_date, condition, notes`; app shows a preview/review table before bulk-saving
+
+All three flows converge at the same confirmation step before any data is written. Testable independently: OCR via `/api/ocr`, CSV parsing via `/api/inventory/import`.
 
 ### 3. Set Data Fetcher
 `/api/lego-status?set_number=75192` — fetches metadata from Rebrickable, writes to `sets` table. Testable in isolation via direct API call.
+
+### 3b. CSV Import API
+`/api/inventory/import` — accepts a CSV file, parses and validates each row, returns a preview payload. On confirmation, bulk-inserts into `inventory_items` (running the duplicate guard per set). Testable by POSTing a CSV file directly.
+
+**Expected CSV format:**
+
+The first row must be a header row with these exact column names (case-insensitive):
+
+```
+set_number,purchased_from,purchase_price,purchase_date,condition,notes
+```
+
+| Column | Required? | Format | Example |
+|---|---|---|---|
+| `set_number` | Required | 4–6 digit LEGO set number | `75192` |
+| `purchased_from` | Optional | Any text | `Target` |
+| `purchase_price` | Optional | Number, no currency symbol | `849.99` |
+| `purchase_date` | Optional | YYYY-MM-DD | `2023-12-01` |
+| `condition` | Optional | `sealed`, `open`, or `complete` (defaults to `sealed`) | `sealed` |
+| `notes` | Optional | Any text | `Christmas gift` |
+
+**Rules:**
+- Leave optional columns blank — do not remove the column itself
+- `set_number` is the only column that will cause a row to be rejected if missing or blank
+- `purchase_price` must be a plain number (no `$`, no commas) — invalid values will reject the row
+- `purchase_date` must be in `YYYY-MM-DD` format — invalid dates will be ignored and saved as blank
+- `condition` values other than `sealed`, `open`, or `complete` default to `sealed` silently
+
+**Minimal valid CSV (set number only):**
+```
+set_number
+75192
+10294
+21325
+```
+
+**Full example:**
+```
+set_number,purchased_from,purchase_price,purchase_date,condition,notes
+75192,Target,849.99,2023-12-01,sealed,Christmas gift
+10294,Amazon,679.99,,sealed,
+21325,LEGO Store,179.99,2022-06-15,sealed,Bought before retirement
+42154,,,,,Still looking for receipt
+```
+
+The app will display a preview table showing valid rows and any errors before anything is saved. A downloadable CSV template will be provided on the upload page.
 
 ### 4. Inventory Management
 Full CRUD for `inventory_items`. Dashboard has two views: **Active Inventory** (unsold sets, grouped by set number with total invested and combined resale potential) and **Sold History** (sold sets with profit/loss per item and overall return). Marking a set as sold captures sale price, date, and platform. Depends on components 2 & 3.
@@ -184,10 +251,14 @@ Full CRUD for `inventory_items`. Dashboard has two views: **Active Inventory** (
 
 **Duplicate quantity guard:** When adding a new inventory item, the API checks how many unsold copies of that set already exist. If the new addition would bring the count to 4 or more, the UI shows a confirmation prompt: _"You already own N copies of [Set Name]. Are you sure you want to add another?"_ The user must explicitly confirm before the item is saved. This catches accidental re-scans and data entry errors.
 
+---
+
+> **Phase 2 — requires eBay API approval before starting**
+
 ### 5. Price & Demand Fetcher
 `/api/prices/fetch?set_number=75192` — fetches resale data from BrickLink/eBay, appends to `price_snapshots`. Manually triggerable in QA. QA database seeded with fake historical snapshots covering multiple months for trend testing.
 
-### 6. Alerts & Recommendations
+### 6. Alerts & Recommendations (Phase 2)
 `/api/alerts/run` — manually triggerable logic that scans `price_snapshots` and `sets` for alert conditions, writes to `alerts`. QA seed data includes pre-built scenarios for each alert type (price spike, retirement, demand drop). Surfaces recommendations in the dashboard UI.
 
 ### 7. QA → Prod Promotion
@@ -210,6 +281,40 @@ BRICKLINK_API_SECRET=
 ```
 
 QA and prod each have their own `.env.local` pointing to separate Supabase projects.
+
+---
+
+## UX & Visual Design
+
+### Navigation
+- **Mobile:** bottom tab bar with four items — Dashboard, Add Sets, Alerts, Settings
+- **Desktop:** left sidebar with the same items plus Admin (visible to admins only)
+
+### Color Scheme — Dark mode, LEGO-branded
+| Token | Value | Usage |
+|---|---|---|
+| Background | `#1A1A1A` | Page background |
+| Card | `#2A2A2A` | Set cards, panels |
+| Primary | `#DA291C` | Buttons, active states (LEGO red) |
+| Accent | `#F5C400` | Highlights, badges (LEGO yellow) |
+| Text | `#FFFFFF` / `#A0A0A0` | Primary / secondary text |
+
+### Key Screens
+
+**Dashboard** — sets grouped by set number (not by physical copy). Each card shows set name, number, theme, total copies owned, amount paid across all copies, current resale avg, and a trend indicator. Two tabs: Active Inventory / Sold History.
+
+**Set Detail** — box photo, set metadata, list of individual copies with edit/sell actions per copy, resale price line chart (last 90 days), and any active alerts for that set.
+
+**Add Sets** — three-tab page: Photo (OCR), Manual Entry (type set number), CSV Upload (bulk import with preview table and downloadable template).
+
+**Alerts** — chronological feed of alert events (price spike, price drop, demand drop, retirement) with set name, alert type, message, and date.
+
+**Settings** — four configurable alert thresholds (price spike %, price drop %, demand drop points, retirement toggle).
+
+**Admin → Users** — table of all users with role, invite date, and a role dropdown. Invite form at the top. Admin-only, redirects members to dashboard.
+
+### Route Protection
+Every route except `/login` requires an authenticated session. Unauthenticated requests are redirected to `/login`. All API routes return `401` without a valid session. `/admin/users` additionally requires `admin` role.
 
 ---
 
