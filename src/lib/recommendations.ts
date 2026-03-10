@@ -35,7 +35,18 @@ export function getRecommendation(
   const { avg_price_usd, demand_score, listings_count } = snapshot
   const { purchase_price_usd, retired, sell_threshold_pct, demand_drop_pts } = ctx
 
-  // SELL: avg resale is above purchase price by at least the user's threshold
+  const lowDemand = demand_score < demand_drop_pts || listings_count < 5
+
+  // WATCH: demand is too low to sell effectively regardless of price
+  // Check this first — no point recommending SELL if buyers aren't there
+  if (lowDemand) {
+    return {
+      recommendation: 'WATCH',
+      reason: `Demand is low (score ${demand_score}/100, ${listings_count} active listings). Price may be up but few buyers — wait for demand to recover before selling.`,
+    }
+  }
+
+  // SELL: price is above threshold AND demand is healthy enough to find a buyer
   if (purchase_price_usd && purchase_price_usd > 0) {
     const gainPct = ((avg_price_usd - purchase_price_usd) / purchase_price_usd) * 100
     if (gainPct >= sell_threshold_pct) {
@@ -44,29 +55,21 @@ export function getRecommendation(
       const paidStr = purchase_price_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
       return {
         recommendation: 'SELL',
-        reason: `Avg resale ${avgStr} — ${gainStr}% above your purchase price of ${paidStr}.`,
+        reason: `Avg resale ${avgStr} — ${gainStr}% above your purchase price of ${paidStr}. Demand is healthy.`,
       }
     }
   }
 
-  // HOLD: retired set — price likely still climbing
+  // HOLD: retired set with healthy demand — price likely still climbing
   if (retired) {
     const avgStr = avg_price_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
     return {
       recommendation: 'HOLD',
-      reason: `Retired set currently at ${avgStr} avg resale. Prices typically rise over time.`,
+      reason: `Retired set at ${avgStr} avg resale with healthy demand. Prices typically rise over time.`,
     }
   }
 
-  // WATCH: demand falling (low demand score or few active listings)
-  if (demand_score < demand_drop_pts || listings_count < 5) {
-    return {
-      recommendation: 'WATCH',
-      reason: `Demand is low (score ${demand_score}/100, ${listings_count} active listings). Monitor before deciding.`,
-    }
-  }
-
-  // Default: hold with no specific signal
+  // Default: hold, no strong signal either way
   return {
     recommendation: 'HOLD',
     reason: `Resale market looks stable at $${avg_price_usd.toFixed(2)} avg. No strong sell signal yet.`,
