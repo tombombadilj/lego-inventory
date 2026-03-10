@@ -2,44 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-
-interface InventoryItem {
-  id: string
-  set_id: string
-  purchased_from: string | null
-  purchase_price_usd: number | null
-  purchase_date: string | null
-  condition: string
-  sold: boolean
-  sold_price_usd: number | null
-  sold_date: string | null
-  sold_via: string | null
-  created_at: string
-  sets: {
-    id: string
-    set_number: string
-    name: string
-    theme: string | null
-    piece_count: number | null
-    retail_price_usd: number | null
-    retired: boolean
-    image_url: string | null
-    override_retail_price_usd: number | null
-    override_retired: boolean | null
-  }
-}
-
-interface GroupedSet {
-  set_number: string
-  name: string
-  theme: string | null
-  piece_count: number | null
-  retired: boolean
-  image_url: string | null
-  retail_price: number | null
-  items: InventoryItem[]
-  total_paid: number
-}
+import type { InventoryItem, GroupedSet } from '@/types/inventory'
 
 interface Props {
   groupedSets: GroupedSet[]
@@ -83,6 +46,7 @@ export default function SearchableInventory({ groupedSets }: Props) {
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder="Search by set number or name…"
+          aria-label="Search inventory"
           className="w-full bg-[#2A2A2A] border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-gray-500 pr-8"
         />
         {query && (
