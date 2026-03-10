@@ -225,7 +225,10 @@ export default function SetDetailPage() {
         {/* Resale price card */}
         <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 mb-6">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-white font-semibold text-sm">Resale Market</p>
+            <div>
+                <p className="text-white font-semibold text-sm">Resale Market</p>
+                <p className="text-gray-600 text-xs">New/sealed asking prices · eBay</p>
+              </div>
             <div className="flex items-center gap-2">
               {snapshot && (
                 <p className="text-gray-500 text-xs">
@@ -287,19 +290,9 @@ export default function SetDetailPage() {
                   </div>
                 </div>
 
-                {/* Demand row */}
+                {/* Listings count row */}
                 <div className="flex items-center gap-3 mb-3 text-xs text-gray-400">
-                  <span>Demand score: <span className="text-white font-medium">{snapshot.demand_score}/100</span></span>
-                  <span className="text-gray-600">·</span>
-                  <span>{snapshot.listings_count} active listings</span>
-                </div>
-
-                {/* Demand bar */}
-                <div className="w-full bg-gray-700 rounded-full h-1.5 mb-3">
-                  <div
-                    className={`h-1.5 rounded-full transition-all ${snapshot.demand_score >= 60 ? 'bg-green-400' : snapshot.demand_score >= 30 ? 'bg-yellow-400' : 'bg-orange-400'}`}
-                    style={{ width: `${snapshot.demand_score}%` }}
-                  />
+                  <span>{snapshot.listings_count} active New listings on eBay</span>
                 </div>
 
                 {/* Recommendation */}
