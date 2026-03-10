@@ -290,9 +290,19 @@ export default function SetDetailPage() {
                   </div>
                 </div>
 
-                {/* Listings count row */}
+                {/* Demand row */}
                 <div className="flex items-center gap-3 mb-3 text-xs text-gray-400">
-                  <span>{snapshot.listings_count} active New listings on eBay</span>
+                  <span>Demand score: <span className="text-white font-medium">{snapshot.demand_score}/100</span></span>
+                  <span className="text-gray-600">·</span>
+                  <span>{snapshot.listings_count} active New listings</span>
+                </div>
+
+                {/* Demand bar */}
+                <div className="w-full bg-gray-700 rounded-full h-1.5 mb-3">
+                  <div
+                    className={`h-1.5 rounded-full transition-all ${snapshot.demand_score >= 60 ? 'bg-green-400' : snapshot.demand_score >= 30 ? 'bg-yellow-400' : 'bg-orange-400'}`}
+                    style={{ width: `${snapshot.demand_score}%` }}
+                  />
                 </div>
 
                 {/* Recommendation */}

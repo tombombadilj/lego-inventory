@@ -103,12 +103,19 @@ export async function fetchEbayPriceData(setNumber: string, setName?: string): P
     const allItems = [...first.items, ...secondItems]
 
     const prices = extractNewUsdPrices(allItems)
-    // listings_count = total New listings (filter from all items we fetched)
+
     const newListingsCount = allItems.filter(i => i.condition?.toLowerCase().startsWith('new')).length
-    // Scale up the count proportionally if there are more pages we didn't fetch
-    const scaledCount = first.total > 200
+    // Scale proportionally when there are more pages than we fetched
+    const scaledNewCount = first.total > 200
       ? Math.round(newListingsCount * (first.total / allItems.length))
       : newListingsCount
+
+    // Demand proxy: New/sealed listings as a share of total market listings.
+    // When few sealed copies remain vs. the overall market, sealed sets are scarce → high demand.
+    // demand_score = 100 - round(newCount / totalCount * 100), clamped 0–100.
+    const demand_score = first.total > 0
+      ? Math.max(0, Math.min(100, Math.round(100 - (scaledNewCount / first.total) * 100)))
+      : 0
 
     let avg_price_usd: number | null = null
     let min_price_usd: number | null = null
@@ -125,8 +132,8 @@ export async function fetchEbayPriceData(setNumber: string, setName?: string): P
       avg_price_usd,
       min_price_usd,
       max_price_usd,
-      listings_count: scaledCount,
-      demand_score: 0, // Requires buy.marketplace.insights scope — not yet approved
+      listings_count: scaledNewCount,
+      demand_score,
     }
   } catch {
     return null
