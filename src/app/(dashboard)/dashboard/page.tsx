@@ -3,61 +3,15 @@ import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
 import AlertsBell from '@/components/AlertsBell'
 import { getRecommendation } from '@/lib/recommendations'
-
-interface InventoryItem {
-  id: string
-  set_id: string
-  purchased_from: string | null
-  purchase_price_usd: number | null
-  purchase_date: string | null
-  condition: string
-  sold: boolean
-  sold_price_usd: number | null
-  sold_date: string | null
-  sold_via: string | null
-  created_at: string
-  sets: {
-    id: string
-    set_number: string
-    name: string
-    theme: string | null
-    piece_count: number | null
-    retail_price_usd: number | null
-    retired: boolean
-    image_url: string | null
-    override_retail_price_usd: number | null
-    override_retired: boolean | null
-  }
-}
+import type { InventoryItem, GroupedSet } from '@/types/inventory'
+import SearchableInventory from '@/components/SearchableInventory'
 
 interface PriceSnapshot {
   set_id: string
   avg_price_usd: number | null
-  min_price_usd: number | null
-  max_price_usd: number | null
   demand_score: number
   listings_count: number
   fetched_at: string
-}
-
-interface GroupedSet {
-  set_id: string
-  set_number: string
-  name: string
-  theme: string | null
-  piece_count: number | null
-  retired: boolean
-  image_url: string | null
-  retail_price: number | null
-  items: InventoryItem[]
-  total_paid: number
-}
-
-const PILL_STYLES = {
-  SELL: 'bg-green-900/60 text-green-400',
-  HOLD: 'bg-yellow-900/50 text-yellow-400',
-  WATCH: 'bg-orange-900/50 text-orange-400',
-  NO_DATA: 'bg-gray-700 text-gray-400',
 }
 
 export default async function DashboardPage() {
@@ -105,17 +59,36 @@ export default async function DashboardPage() {
   if (setIds.length > 0) {
     const { data: snapshots } = await supabase
       .from('price_snapshots')
-      .select('set_id, avg_price_usd, min_price_usd, max_price_usd, demand_score, listings_count, fetched_at')
+      .select('set_id, avg_price_usd, demand_score, listings_count, fetched_at')
       .in('set_id', setIds)
       .order('fetched_at', { ascending: false })
 
-    // Keep only the most recent snapshot per set_id
     for (const snap of (snapshots ?? []) as PriceSnapshot[]) {
       if (!snapshotMap[snap.set_id]) snapshotMap[snap.set_id] = snap
     }
   }
 
   const userSettings = settings ?? { price_spike_pct: 10, demand_drop_pts: 20 }
+
+  // Pre-compute recommendations server-side and embed in groupedSets
+  const enrichedSets: GroupedSet[] = groupedSets.map(group => {
+    const snapshot = snapshotMap[group.set_id] ?? null
+    const avgPurchasePrice = group.items.filter(i => i.purchase_price_usd != null).length > 0
+      ? group.total_paid / group.items.filter(i => i.purchase_price_usd != null).length
+      : null
+    const { recommendation, reason } = getRecommendation(snapshot, {
+      purchase_price_usd: avgPurchasePrice,
+      retired: group.retired,
+      sell_threshold_pct: userSettings.price_spike_pct,
+      demand_drop_pts: userSettings.demand_drop_pts,
+    })
+    return {
+      ...group,
+      avg_price_usd: snapshot?.avg_price_usd ?? null,
+      recommendation,
+      recommendation_reason: reason,
+    }
+  })
 
   const totalInvested = activeItems.reduce((sum, i) => sum + (i.purchase_price_usd ?? 0), 0)
   const totalSoldRevenue = soldItems.reduce((sum, i) => sum + (i.sold_price_usd ?? 0), 0)
@@ -161,78 +134,7 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Active Inventory */}
-        <h2 className="text-white font-semibold mb-3">Active Inventory ({groupedSets.length} sets)</h2>
-
-        {groupedSets.length === 0 ? (
-          <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-8 text-center mb-6">
-            <p className="text-4xl mb-3">🧱</p>
-            <p className="text-white font-medium">No sets yet</p>
-            <p className="text-gray-400 text-sm mt-1 mb-4">Add your first set to get started</p>
-            <Link href="/upload" className="inline-block bg-[#DA291C] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-red-700">
-              Add Sets
-            </Link>
-          </div>
-        ) : (
-          <div className="space-y-3 mb-8">
-            {groupedSets.map(group => {
-              const snapshot = snapshotMap[group.set_id] ?? null
-              const avgPurchasePrice = group.items.length > 0
-                ? group.total_paid / group.items.filter(i => i.purchase_price_usd != null).length || null
-                : null
-              const { recommendation, reason } = getRecommendation(snapshot, {
-                purchase_price_usd: avgPurchasePrice,
-                retired: group.retired,
-                sell_threshold_pct: userSettings.price_spike_pct,
-                demand_drop_pts: userSettings.demand_drop_pts,
-              })
-
-              return (
-                <Link key={group.set_number} href={`/sets/${group.set_number}`}
-                  className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 flex items-center gap-4 hover:border-gray-500 transition-colors block">
-                  {group.image_url ? (
-                    <img src={group.image_url} alt={group.name} className="w-16 h-16 object-contain rounded-lg bg-white p-1 flex-shrink-0" />
-                  ) : (
-                    <div className="w-16 h-16 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <span className="text-2xl">🧱</span>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-white font-medium truncate">{group.name}</p>
-                      {group.retired && (
-                        <span className="bg-yellow-900/50 text-yellow-400 text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0">RETIRED</span>
-                      )}
-                    </div>
-                    <p className="text-gray-400 text-xs">#{group.set_number} · {group.theme} · {group.piece_count?.toLocaleString()} pcs</p>
-                    <p className="text-gray-400 text-xs mt-0.5">
-                      {group.items.length} {group.items.length === 1 ? 'copy' : 'copies'} · Paid ${group.total_paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0 space-y-1">
-                    {snapshot?.avg_price_usd != null ? (
-                      <>
-                        <p className="text-white text-sm font-medium">
-                          ${snapshot.avg_price_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </p>
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES[recommendation]}`} title={reason}>
-                          {recommendation}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-xs text-gray-500">Resale</p>
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES.NO_DATA}`}>
-                          NO DATA
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </Link>
-              )
-            })}
-          </div>
-        )}
+        <SearchableInventory groupedSets={enrichedSets} />
 
         {/* Sold History */}
         {soldItems.length > 0 && (
