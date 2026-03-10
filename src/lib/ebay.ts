@@ -2,14 +2,17 @@ const TIMEOUT_MS = 10000
 const FINDING_API_URL = 'https://svcs.ebay.com/services/search/FindingService/v1'
 
 export interface EbayPriceData {
+  avg_price_usd: number | null
+  min_price_usd: number | null
+  max_price_usd: number | null
   listings_count: number
   demand_score: number
 }
 
-function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer))
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer))
 }
 
 function buildFindingUrl(operation: string, keywords: string, entriesPerPage = 100): string {
@@ -23,28 +26,47 @@ function buildFindingUrl(operation: string, keywords: string, entriesPerPage = 1
     'paginationInput.entriesPerPage': String(entriesPerPage),
     'itemFilter(0).name': 'ListingType',
     'itemFilter(0).value': 'AuctionWithBIN,FixedPrice',
+    'itemFilter(1).name': 'Currency',
+    'itemFilter(1).value': 'USD',
   })
   return `${FINDING_API_URL}?${params}`
 }
 
-async function fetchListingCount(keywords: string, operation: string): Promise<number> {
-  const res = await fetchWithTimeout(buildFindingUrl(operation, keywords, 1), {
-    headers: { 'Content-Type': 'application/json' },
-  })
+interface EbayItem {
+  sellingStatus?: { currentPrice?: { __value__?: string }[] }[]
+}
+
+function extractPricesFromItems(items: EbayItem[]): number[] {
+  return items
+    .map(item => parseFloat(item.sellingStatus?.[0]?.currentPrice?.[0]?.__value__ ?? ''))
+    .filter(p => !isNaN(p) && p > 0)
+}
+
+async function fetchCompletedItems(keywords: string): Promise<{ prices: number[]; count: number }> {
+  const res = await fetchWithTimeout(buildFindingUrl('findCompletedItems', keywords, 100))
+  if (!res.ok) return { prices: [], count: 0 }
+  const data = await res.json()
+  const root = data.findCompletedItemsResponse?.[0]
+  const items: EbayItem[] = root?.searchResult?.[0]?.item ?? []
+  const countStr = root?.paginationOutput?.[0]?.totalEntries?.[0]
+  return {
+    prices: extractPricesFromItems(items),
+    count: parseInt(countStr ?? '0', 10) || 0,
+  }
+}
+
+async function fetchActiveCount(keywords: string): Promise<number> {
+  const res = await fetchWithTimeout(buildFindingUrl('findItemsByKeywords', keywords, 1))
   if (!res.ok) return 0
   const data = await res.json()
-  const root = operation === 'findCompletedItems'
-    ? data.findCompletedItemsResponse?.[0]
-    : data.findItemsByKeywordsResponse?.[0]
-  const countStr = root?.paginationOutput?.[0]?.totalEntries?.[0]
+  const countStr = data.findItemsByKeywordsResponse?.[0]?.paginationOutput?.[0]?.totalEntries?.[0]
   return parseInt(countStr ?? '0', 10) || 0
 }
 
 /**
- * Calls eBay Finding API to determine demand signals for a LEGO set.
- *
- * demand_score: 0-100, derived from sold/(active+sold) ratio.
- * A high score means many completed (sold) listings relative to active — strong demand.
+ * Calls eBay Finding API for a LEGO set number.
+ * Returns real avg/min/max prices from completed (sold) listings,
+ * plus demand score derived from sold/(sold+active) ratio.
  */
 export async function fetchEbayPriceData(setNumber: string): Promise<EbayPriceData | null> {
   if (!process.env.EBAY_APP_ID) return null
@@ -52,15 +74,30 @@ export async function fetchEbayPriceData(setNumber: string): Promise<EbayPriceDa
   const keywords = `LEGO ${setNumber}`
 
   try {
-    const [soldCount, activeCount] = await Promise.all([
-      fetchListingCount(keywords, 'findCompletedItems'),
-      fetchListingCount(keywords, 'findItemsByKeywords'),
+    const [completed, activeCount] = await Promise.all([
+      fetchCompletedItems(keywords),
+      fetchActiveCount(keywords),
     ])
 
+    const { prices, count: soldCount } = completed
     const total = soldCount + activeCount
     const demand_score = total > 0 ? Math.round((soldCount / total) * 100) : 0
 
+    let avg_price_usd: number | null = null
+    let min_price_usd: number | null = null
+    let max_price_usd: number | null = null
+
+    if (prices.length > 0) {
+      const sum = prices.reduce((s, p) => s + p, 0)
+      avg_price_usd = Math.round((sum / prices.length) * 100) / 100
+      min_price_usd = Math.round(Math.min(...prices) * 100) / 100
+      max_price_usd = Math.round(Math.max(...prices) * 100) / 100
+    }
+
     return {
+      avg_price_usd,
+      min_price_usd,
+      max_price_usd,
       listings_count: activeCount,
       demand_score,
     }

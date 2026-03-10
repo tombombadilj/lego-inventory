@@ -43,14 +43,13 @@ export async function GET(request: NextRequest) {
     fetchEbayPriceData(setNumber),
   ])
 
-  // BrickOwl is primary for price; eBay is primary for demand signals
-  const avg_price_usd = brickowlData?.avg_price_usd ?? null
-  const min_price_usd = brickowlData?.min_price_usd ?? null
-  const max_price_usd = brickowlData?.max_price_usd ?? null
+  // BrickOwl is primary for price; eBay fills in when BrickOwl key isn't set
+  const avg_price_usd = brickowlData?.avg_price_usd ?? ebayData?.avg_price_usd ?? null
+  const min_price_usd = brickowlData?.min_price_usd ?? ebayData?.min_price_usd ?? null
+  const max_price_usd = brickowlData?.max_price_usd ?? ebayData?.max_price_usd ?? null
   const listings_count = ebayData?.listings_count ?? 0
   const demand_score = ebayData?.demand_score ?? 0
 
-  // Only the source label records which data we actually got
   const sources: string[] = []
   if (brickowlData) sources.push('brickowl')
   if (ebayData) sources.push('ebay')
