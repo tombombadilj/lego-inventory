@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { getRecommendation } from '@/lib/recommendations'
 
 interface InventoryItem {
@@ -60,6 +61,7 @@ export default function SetDetailPage() {
   const [modal, setModal] = useState<Modal>(null)
   const [form, setForm] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [userSettings, setUserSettings] = useState({ price_spike_pct: 10, demand_drop_pts: 20 })
 
   async function loadData() {
     const res = await fetch('/api/sets?all=true')
@@ -121,6 +123,10 @@ export default function SetDetailPage() {
   useEffect(() => {
     loadData()
     loadPriceData(false)
+    fetch('/api/settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.price_spike_pct) setUserSettings({ price_spike_pct: d.price_spike_pct, demand_drop_pts: d.demand_drop_pts }) })
+      .catch(() => {})
   }, [setNumber])
 
   function openEdit(item: InventoryItem) {
@@ -201,7 +207,7 @@ export default function SetDetailPage() {
         {/* Set header */}
         <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 flex gap-4 mb-6">
           {group.image_url ? (
-            <img src={group.image_url} alt={group.name} className="w-24 h-24 object-contain rounded-lg bg-white p-1 flex-shrink-0" />
+            <Image src={group.image_url} alt={group.name} width={96} height={96} className="object-contain rounded-lg bg-white p-1 flex-shrink-0" />
           ) : (
             <div className="w-24 h-24 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
               <span className="text-3xl">🧱</span>
@@ -268,8 +274,8 @@ export default function SetDetailPage() {
             const { recommendation, reason } = getRecommendation(snapshot, {
               purchase_price_usd: avgPurchase,
               retired: group?.retired ?? false,
-              sell_threshold_pct: 10,
-              demand_drop_pts: 20,
+              sell_threshold_pct: userSettings.price_spike_pct,
+              demand_drop_pts: userSettings.demand_drop_pts,
             })
 
             return snapshot?.avg_price_usd != null ? (

@@ -41,11 +41,17 @@ export async function fetchBrickOwlPriceData(setNumber: string): Promise<BrickOw
     if (!res.ok) return null
 
     const data = await res.json()
-    // BrickOwl returns an array of { price, currency_code, date } objects (USD-converted)
+    // BrickOwl returns an array of { price, currency_code, date } objects.
+    // BrickOwl is primarily a UK/EU marketplace so most listings are GBP or EUR.
+    // Convert to USD using approximate exchange rates rather than discarding non-USD entries.
+    const RATES: Record<string, number> = { USD: 1, GBP: 1.27, EUR: 1.08, CAD: 0.74, AUD: 0.64 }
     const entries: { price: string | number; currency_code?: string }[] = Array.isArray(data) ? data : []
     const usdPrices = entries
-      .filter(e => !e.currency_code || e.currency_code === 'USD')
-      .map(e => parseFloat(String(e.price)))
+      .map(e => {
+        const rate = RATES[e.currency_code ?? 'USD'] ?? null
+        if (!rate) return NaN // skip unknown currencies
+        return parseFloat(String(e.price)) * rate
+      })
       .filter(p => !isNaN(p) && p > 0)
 
     if (usdPrices.length === 0) return null

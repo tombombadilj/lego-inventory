@@ -16,15 +16,16 @@ export async function GET(request: NextRequest) {
 
   const force = request.nextUrl.searchParams.get('force') === 'true'
 
-  // Resolve set_id from set_number
+  // Resolve set_id and name from set_number
   const { data: setRow } = await supabase
     .from('sets')
-    .select('id')
+    .select('id, name')
     .eq('set_number', setNumber)
     .single()
 
   if (!setRow) return NextResponse.json({ error: `Set ${setNumber} not found` }, { status: 404 })
   const setId = setRow.id
+  const setName: string | undefined = setRow.name ?? undefined
 
   // Return cached snapshot if within TTL (skip cache when force=true)
   const { data: cached } = await supabase
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
   // Fetch from both APIs in parallel
   const [brickowlData, ebayData] = await Promise.all([
     fetchBrickOwlPriceData(setNumber),
-    fetchEbayPriceData(setNumber),
+    fetchEbayPriceData(setNumber, setName),
   ])
 
   // BrickOwl is primary for price; eBay fills in when BrickOwl key isn't set
@@ -64,10 +65,16 @@ export async function GET(request: NextRequest) {
   const listings_count = ebayData?.listings_count ?? 0
   const demand_score = ebayData?.demand_score ?? 0
 
+  // If both APIs failed, don't cache a null snapshot — return last known data
+  // or empty so the client can retry sooner than the 48h TTL
+  if (!brickowlData && !ebayData) {
+    return NextResponse.json(cached ?? null, { status: cached ? 200 : 204 })
+  }
+
   const sources: string[] = []
   if (brickowlData) sources.push('brickowl')
   if (ebayData) sources.push('ebay')
-  const source = sources.length > 0 ? sources.join('+') : 'none'
+  const source = sources.join('+')
 
   const serviceSupabase = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
