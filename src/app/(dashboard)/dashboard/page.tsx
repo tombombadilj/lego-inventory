@@ -9,6 +9,8 @@ import SearchableInventory from '@/components/SearchableInventory'
 interface PriceSnapshot {
   set_id: string
   avg_price_usd: number | null
+  min_price_usd: number | null
+  max_price_usd: number | null
   demand_score: number
   listings_count: number
   fetched_at: string
@@ -59,7 +61,7 @@ export default async function DashboardPage() {
   if (setIds.length > 0) {
     const { data: snapshots } = await supabase
       .from('price_snapshots')
-      .select('set_id, avg_price_usd, demand_score, listings_count, fetched_at')
+      .select('set_id, avg_price_usd, min_price_usd, max_price_usd, demand_score, listings_count, fetched_at')
       .in('set_id', setIds)
       .order('fetched_at', { ascending: false })
 
