@@ -4,7 +4,7 @@
 
 **Goal:** Build a mobile-friendly web app to inventory sealed LEGO sets with OCR-based photo detection, resale price tracking, sell recommendations, and configurable alerts.
 
-**Architecture:** Next.js 14 (App Router) frontend + API routes, Supabase for PostgreSQL database / auth / photo storage, Google Cloud Vision for OCR, Rebrickable for set metadata, BrickLink for resale prices. QA and prod are separate Supabase projects swapped via environment variables.
+**Architecture:** Next.js 14 (App Router) frontend + API routes, Supabase for PostgreSQL database / auth / photo storage, Google Cloud Vision for OCR, Rebrickable for set metadata, eBay Finding API for resale prices (completed/sold listings). QA and prod are separate Supabase projects swapped via environment variables.
 
 **Tech Stack:** Next.js 14, TypeScript, Tailwind CSS, Supabase JS (`@supabase/supabase-js`, `@supabase/ssr`), Jest, React Testing Library, Google Cloud Vision API, Rebrickable API
 
@@ -61,16 +61,15 @@ Complete all account setup before writing any code. None of these require paymen
 
 ---
 
-### 5. BrickLink API (free, no credit card)
+### 5. eBay Developer API (free, no credit card)
 
-1. Go to [bricklink.com](https://www.bricklink.com) → Sign up for a free account
-2. Go to **My BrickLink → API Settings** (or visit [bricklink.com/v2/api/register_consumer.page](https://www.bricklink.com/v2/api/register_consumer.page))
-3. Register a new consumer app → name: `LEGO Inventory`, IP: leave blank for now
-4. Copy all four values:
-   - Consumer Key → `BRICKLINK_CONSUMER_KEY`
-   - Consumer Secret → `BRICKLINK_CONSUMER_SECRET`
-   - Token → `BRICKLINK_TOKEN`
-   - Token Secret → `BRICKLINK_TOKEN_SECRET`
+1. Go to [developer.ebay.com](https://developer.ebay.com) → sign in with your eBay account (or create a free one)
+2. Click **Get Started** → **Create Account** if prompted
+3. Go to **Hi [name] → Application Access** → **Get an App ID**
+4. Create a new application → name: `LEGO Inventory`
+5. Copy the **App ID (Client ID)** → `EBAY_APP_ID`
+
+> Note: We use the eBay Finding API which only requires an App ID — no OAuth token needed for read-only price searches.
 
 ---
 
@@ -91,10 +90,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<your QA anon key>
 SUPABASE_SERVICE_ROLE_KEY=<your QA service role key>
 GOOGLE_CLOUD_VISION_API_KEY=<your key>
 REBRICKABLE_API_KEY=<your key>
-BRICKLINK_CONSUMER_KEY=<your key>
-BRICKLINK_CONSUMER_SECRET=<your key>
-BRICKLINK_TOKEN=<your token>
-BRICKLINK_TOKEN_SECRET=<your token secret>
+EBAY_APP_ID=<your App ID>
 ```
 
 This file is gitignored and never leaves your machine.
@@ -159,10 +155,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 GOOGLE_CLOUD_VISION_API_KEY=
 REBRICKABLE_API_KEY=
-BRICKLINK_CONSUMER_KEY=
-BRICKLINK_CONSUMER_SECRET=
-BRICKLINK_TOKEN=
-BRICKLINK_TOKEN_SECRET=
+EBAY_APP_ID=
 ```
 
 **Step 6: Verify `.gitignore` includes secrets**
@@ -413,15 +406,17 @@ create policy "Authenticated users can read sets"
 create policy "Authenticated users can read price_snapshots"
   on public.price_snapshots for select to authenticated using (true);
 
--- RLS Policies: users manage their own data
+-- RLS Policies: all authenticated users can read and write all inventory
+create policy "Authenticated users manage all inventory"
+  on public.inventory_items for all to authenticated
+  using (true) with check (true);
+
+-- User settings: each user manages only their own settings
 create policy "Users manage own settings"
   on public.user_settings for all to authenticated
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
-create policy "Users manage own inventory"
-  on public.inventory_items for all to authenticated
-  using (auth.uid() = added_by) with check (auth.uid() = added_by);
-
+-- Alerts: each user sees only their own alerts
 create policy "Users manage own alerts"
   on public.alerts for all to authenticated
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -649,6 +644,205 @@ git commit -m "feat: add login page, logout, and auth callback route"
 
 ---
 
+## Task 4b: Admin User Management Page
+
+**Files:**
+- Create: `src/app/(dashboard)/admin/users/page.tsx`
+- Create: `src/app/api/admin/users/route.ts`
+- Create: `src/app/api/admin/users/[id]/route.ts`
+- Create: `src/lib/roles.ts`
+
+**Step 1: Create `src/lib/roles.ts`** — role checking helpers
+
+```typescript
+import { createClient } from '@/lib/supabase/server'
+
+export async function isAdmin(): Promise<boolean> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+  const role = user.user_metadata?.role ?? 'member'
+  return role === 'admin'
+}
+```
+
+**Step 2: Create `src/app/api/admin/users/route.ts`** — list all users + invite
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { isAdmin } from '@/lib/roles'
+
+const serviceSupabase = () => createServiceClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+export async function GET() {
+  if (!await isAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const { data: { users }, error } = await serviceSupabase().auth.admin.listUsers()
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json(users.map(u => ({
+    id: u.id,
+    email: u.email,
+    role: u.user_metadata?.role ?? 'member',
+    created_at: u.created_at,
+  })))
+}
+
+export async function POST(request: NextRequest) {
+  if (!await isAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const { email } = await request.json()
+  if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 })
+  const { data, error } = await serviceSupabase().auth.admin.inviteUserByEmail(email, {
+    data: { role: 'member' }
+  })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json(data, { status: 201 })
+}
+```
+
+**Step 3: Create `src/app/api/admin/users/[id]/route.ts`** — update role + delete user
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { isAdmin } from '@/lib/roles'
+
+const serviceSupabase = () => createServiceClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  if (!await isAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const { role } = await request.json()
+  if (!['admin', 'member'].includes(role)) return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+  const { data, error } = await serviceSupabase().auth.admin.updateUserById(params.id, {
+    user_metadata: { role }
+  })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json(data)
+}
+
+export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
+  if (!await isAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const { error } = await serviceSupabase().auth.admin.deleteUser(params.id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return new NextResponse(null, { status: 204 })
+}
+```
+
+**Step 4: Create `src/app/(dashboard)/admin/users/page.tsx`**
+
+```typescript
+'use client'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+
+interface User { id: string; email: string; role: string; created_at: string }
+
+export default function AdminUsersPage() {
+  const [users, setUsers] = useState<User[]>([])
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+  const router = useRouter()
+
+  useEffect(() => {
+    fetch('/api/admin/users')
+      .then(r => { if (r.status === 403) router.push('/dashboard'); return r.json() })
+      .then(setUsers)
+  }, [])
+
+  async function invite() {
+    setLoading(true)
+    const res = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: inviteEmail }),
+    })
+    setMessage(res.ok ? `Invite sent to ${inviteEmail}` : 'Failed to send invite')
+    setInviteEmail('')
+    setLoading(false)
+    if (res.ok) fetch('/api/admin/users').then(r => r.json()).then(setUsers)
+  }
+
+  async function changeRole(id: string, role: string) {
+    await fetch(`/api/admin/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    })
+    setUsers(users.map(u => u.id === id ? { ...u, role } : u))
+  }
+
+  async function removeUser(id: string) {
+    if (!confirm('Remove this user?')) return
+    await fetch(`/api/admin/users/${id}`, { method: 'DELETE' })
+    setUsers(users.filter(u => u.id !== id))
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-6">User Management</h1>
+
+      {/* Invite form */}
+      <div className="bg-[#2A2A2A] rounded-xl p-4 mb-6">
+        <p className="text-sm font-medium mb-3">Invite New User</p>
+        <div className="flex gap-2">
+          <input type="email" placeholder="email@example.com" value={inviteEmail}
+            onChange={e => setInviteEmail(e.target.value)}
+            className="flex-1 bg-[#1A1A1A] border border-gray-600 rounded-md px-3 py-2 text-sm text-white" />
+          <button onClick={invite} disabled={loading || !inviteEmail}
+            className="bg-[#DA291C] text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+            Send Invite
+          </button>
+        </div>
+        {message && <p className="text-sm text-green-400 mt-2">{message}</p>}
+      </div>
+
+      {/* Users table */}
+      <div className="space-y-2">
+        {users.map(user => (
+          <div key={user.id} className="bg-[#2A2A2A] rounded-lg px-4 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-white">{user.email}</p>
+              <p className="text-xs text-gray-400">Joined {new Date(user.created_at).toLocaleDateString()}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <select value={user.role} onChange={e => changeRole(user.id, e.target.value)}
+                className="bg-[#1A1A1A] border border-gray-600 rounded px-2 py-1 text-sm text-white">
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button onClick={() => removeUser(user.id)}
+                className="text-xs text-red-400 hover:text-red-300">Remove</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+**Step 5: Manual test**
+
+1. Navigate to `/admin/users` — verify user list loads
+2. Enter an email and send invite — verify email arrives
+3. Change a user's role to `admin` — verify role updates in the list
+4. Navigate to `/admin/users` while logged in as a member — verify redirect to `/dashboard`
+
+**Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "feat: add admin user management page with invite, role change, and remove"
+```
+
+---
+
 ## Task 5: Photo Upload & OCR
 
 **Files:**
@@ -815,6 +1009,375 @@ Expected: `{ "setNumbers": ["75192", ...], "rawText": "..." }`
 ```bash
 git add -A
 git commit -m "feat: add OCR photo upload with Google Cloud Vision and set number extraction"
+```
+
+---
+
+## Task 5b: CSV Import & Manual Set Entry
+
+**Files:**
+- Create: `src/lib/csv.ts`
+- Create: `src/app/api/inventory/import/route.ts`
+- Modify: `src/app/(dashboard)/upload/page.tsx`
+- Create: `src/__tests__/csv.test.ts`
+
+**Step 1: Write failing test**
+
+Create `src/__tests__/csv.test.ts`:
+```typescript
+import { parseLegoCsv } from '@/lib/csv'
+
+describe('parseLegoCsv', () => {
+  it('parses valid CSV rows into inventory items', () => {
+    const csv = `set_number,purchased_from,purchase_price,purchase_date,condition,notes
+75192,Target,849.99,2023-12-01,sealed,Christmas gift
+10294,Amazon,679.99,,sealed,`
+    const result = parseLegoCsv(csv)
+    expect(result.valid).toHaveLength(2)
+    expect(result.valid[0].set_number).toBe('75192')
+    expect(result.valid[0].purchase_price).toBe(849.99)
+    expect(result.valid[0].purchase_date).toBe('2023-12-01')
+    expect(result.valid[1].purchase_date).toBeNull()
+  })
+
+  it('flags rows with missing set_number as invalid', () => {
+    const csv = `set_number,purchased_from\n,Target`
+    const result = parseLegoCsv(csv)
+    expect(result.valid).toHaveLength(0)
+    expect(result.invalid).toHaveLength(1)
+  })
+
+  it('flags rows with non-numeric price as invalid', () => {
+    const csv = `set_number,purchase_price\n75192,notaprice`
+    const result = parseLegoCsv(csv)
+    expect(result.invalid[0].error).toMatch(/price/)
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+npm test csv.test.ts
+```
+Expected: FAIL
+
+**Step 3: Create `src/lib/csv.ts`**
+
+```typescript
+export interface CsvRow {
+  set_number: string
+  purchased_from: string | null
+  purchase_price: number | null
+  purchase_date: string | null
+  condition: 'sealed' | 'open' | 'complete'
+  notes: string | null
+}
+
+export interface CsvParseResult {
+  valid: CsvRow[]
+  invalid: { row: number; raw: string; error: string }[]
+}
+
+export function parseLegoCsv(csvText: string): CsvParseResult {
+  const lines = csvText.trim().split('\n')
+  const headers = lines[0].toLowerCase().split(',').map(h => h.trim())
+  const valid: CsvRow[] = []
+  const invalid: { row: number; raw: string; error: string }[] = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const raw = lines[i]
+    const cols = raw.split(',').map(c => c.trim())
+    const get = (col: string) => cols[headers.indexOf(col)] ?? ''
+
+    const setNumber = get('set_number')
+    if (!setNumber) {
+      invalid.push({ row: i + 1, raw, error: 'Missing set_number' })
+      continue
+    }
+
+    const priceRaw = get('purchase_price')
+    let purchase_price: number | null = null
+    if (priceRaw) {
+      const parsed = parseFloat(priceRaw)
+      if (isNaN(parsed)) {
+        invalid.push({ row: i + 1, raw, error: 'Invalid purchase_price — must be a number' })
+        continue
+      }
+      purchase_price = parsed
+    }
+
+    const conditionRaw = get('condition')
+    const condition = (['sealed', 'open', 'complete'].includes(conditionRaw)
+      ? conditionRaw
+      : 'sealed') as CsvRow['condition']
+
+    valid.push({
+      set_number: setNumber,
+      purchased_from: get('purchased_from') || null,
+      purchase_price,
+      purchase_date: get('purchase_date') || null,
+      condition,
+      notes: get('notes') || null,
+    })
+  }
+
+  return { valid, invalid }
+}
+```
+
+**Step 4: Run test to verify it passes**
+
+```bash
+npm test csv.test.ts
+```
+Expected: PASS
+
+**Step 5: Create `src/app/api/inventory/import/route.ts`**
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { parseLegoCsv } from '@/lib/csv'
+
+export async function POST(request: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const formData = await request.formData()
+  const file = formData.get('file') as File
+  const confirm = formData.get('confirm') === 'true'
+
+  if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+
+  const text = await file.text()
+  const { valid, invalid } = parseLegoCsv(text)
+
+  // Preview mode — return parsed rows without saving
+  if (!confirm) {
+    return NextResponse.json({ valid, invalid, total: valid.length + invalid.length })
+  }
+
+  // Confirm mode — look up set IDs and bulk insert
+  const results = []
+  for (const row of valid) {
+    const { data: set } = await supabase
+      .from('sets')
+      .select('id')
+      .eq('set_number', row.set_number)
+      .single()
+
+    if (!set) {
+      results.push({ set_number: row.set_number, status: 'skipped', reason: 'Set not found — run lego-status first' })
+      continue
+    }
+
+    const { error } = await supabase
+      .from('inventory_items')
+      .insert({
+        set_id: set.id,
+        added_by: user.id,
+        purchased_from: row.purchased_from,
+        purchase_price_usd: row.purchase_price,
+        purchase_date: row.purchase_date,
+        condition: row.condition,
+        notes: row.notes,
+      })
+
+    results.push({ set_number: row.set_number, status: error ? 'error' : 'saved', reason: error?.message })
+  }
+
+  return NextResponse.json({ results, invalid })
+}
+```
+
+**Step 6: Update `src/app/(dashboard)/upload/page.tsx`** — add manual entry and CSV upload tabs
+
+Replace the existing upload page content with a three-tab layout:
+```typescript
+'use client'
+import { useState } from 'react'
+
+type Tab = 'photo' | 'manual' | 'csv'
+
+export default function UploadPage() {
+  const [tab, setTab] = useState<Tab>('photo')
+  const [preview, setPreview] = useState<string | null>(null)
+  const [detected, setDetected] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const [manualInput, setManualInput] = useState('')
+  const [csvPreview, setCsvPreview] = useState<{ valid: object[]; invalid: object[] } | null>(null)
+
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPreview(URL.createObjectURL(file))
+    setLoading(true)
+    const form = new FormData()
+    form.append('image', file)
+    const res = await fetch('/api/ocr', { method: 'POST', body: form })
+    const data = await res.json()
+    setDetected(data.setNumbers ?? [])
+    setLoading(false)
+  }
+
+  async function handleCsvUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch('/api/inventory/import', { method: 'POST', body: form })
+    const data = await res.json()
+    setCsvPreview(data)
+  }
+
+  async function confirmCsvImport() {
+    // re-POST with confirm=true
+    // (in full implementation, re-send the file with confirm flag)
+  }
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'photo', label: 'Photo' },
+    { id: 'manual', label: 'Manual Entry' },
+    { id: 'csv', label: 'CSV Upload' },
+  ]
+
+  return (
+    <div className="max-w-lg mx-auto p-4">
+      <h1 className="text-xl font-bold mb-4">Add LEGO Sets</h1>
+
+      {/* Tabs */}
+      <div className="flex border-b mb-6">
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Photo tab */}
+      {tab === 'photo' && (
+        <div>
+          <input type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700" />
+          {preview && <img src={preview} alt="Preview" className="mt-4 rounded-lg w-full" />}
+          {loading && <p className="mt-4 text-gray-500">Scanning for set numbers...</p>}
+          {detected.length > 0 && (
+            <div className="mt-4">
+              <p className="font-medium">Detected set numbers:</p>
+              <ul className="mt-2 space-y-1">
+                {detected.map(n => (
+                  <li key={n} className="flex items-center justify-between bg-gray-50 px-3 py-2 rounded-md">
+                    <span className="font-mono">{n}</span>
+                    <button className="text-sm text-blue-600 hover:underline">Add to inventory</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Manual entry tab */}
+      {tab === 'manual' && (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Set Number</label>
+            <input type="text" placeholder="e.g. 75192" value={manualInput}
+              onChange={e => setManualInput(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono" />
+          </div>
+          <button
+            onClick={() => setDetected([manualInput.trim()])}
+            disabled={!manualInput.trim()}
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            Look Up Set
+          </button>
+          {detected.length > 0 && (
+            <div className="bg-gray-50 px-3 py-2 rounded-md flex items-center justify-between">
+              <span className="font-mono">{detected[0]}</span>
+              <button className="text-sm text-blue-600 hover:underline">Add to inventory</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* CSV upload tab */}
+      {tab === 'csv' && (
+        <div className="space-y-4">
+          {/* Format instructions */}
+          <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2">
+            <p className="font-medium text-gray-700">CSV Format</p>
+            <p className="text-gray-500">Only <span className="font-mono font-semibold text-gray-700">set_number</span> is required. All other columns are optional — leave them blank, don't remove them.</p>
+            <div className="font-mono text-xs bg-white border border-gray-200 rounded p-2 overflow-x-auto whitespace-pre">
+{`set_number,purchased_from,purchase_price,purchase_date,condition,notes
+75192,Target,849.99,2023-12-01,sealed,Christmas gift
+10294,Amazon,679.99,,sealed,
+21325,,,,, `}
+            </div>
+            <ul className="text-gray-500 space-y-1 text-xs">
+              <li><span className="font-mono text-gray-700">purchase_price</span> — number only, no $ or commas (e.g. <span className="font-mono">849.99</span>)</li>
+              <li><span className="font-mono text-gray-700">purchase_date</span> — YYYY-MM-DD format (e.g. <span className="font-mono">2023-12-01</span>)</li>
+              <li><span className="font-mono text-gray-700">condition</span> — <span className="font-mono">sealed</span>, <span className="font-mono">open</span>, or <span className="font-mono">complete</span> (defaults to sealed)</li>
+            </ul>
+            {/* Downloadable template */}
+            <a
+              href="data:text/csv;charset=utf-8,set_number%2Cpurchased_from%2Cpurchase_price%2Cpurchase_date%2Ccondition%2Cnotes%0A"
+              download="lego-inventory-template.csv"
+              className="inline-block text-blue-600 text-xs hover:underline">
+              Download blank template
+            </a>
+          </div>
+
+          <input type="file" accept=".csv" onChange={handleCsvUpload}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700" />
+
+          {csvPreview && (
+            <div className="mt-4 space-y-3">
+              <div className="flex gap-3 text-sm">
+                <span className="text-green-600 font-medium">✓ {(csvPreview.valid as object[]).length} valid rows</span>
+                {(csvPreview.invalid as object[]).length > 0 && (
+                  <span className="text-red-500 font-medium">✗ {(csvPreview.invalid as object[]).length} errors (will be skipped)</span>
+                )}
+              </div>
+              <button onClick={confirmCsvImport}
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700">
+                Import {(csvPreview.valid as object[]).length} Sets
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+**Step 7: Manual test — CSV import**
+
+Create a test CSV file `test-import.csv`:
+```
+set_number,purchased_from,purchase_price,purchase_date,condition,notes
+75192,Target,849.99,2023-12-01,sealed,
+10294,Amazon,679.99,,sealed,
+```
+
+```bash
+# Preview (no confirm)
+curl -X POST http://localhost:3000/api/inventory/import \
+  -H "Cookie: <session>" \
+  -F "file=@test-import.csv"
+
+# Expected: { "valid": [...2 rows...], "invalid": [], "total": 2 }
+```
+
+**Step 8: Commit**
+
+```bash
+git add -A
+git commit -m "feat: add CSV import and manual set number entry alongside photo upload"
 ```
 
 ---
@@ -1188,18 +1751,26 @@ git commit -m "feat: add inventory CRUD API with duplicate guard and dashboard p
 
 ---
 
+---
+
+## ⏸ Phase 2 — Start only after eBay API approval
+
+> Tasks 8 and 9 require a live eBay App ID in `.env.local`. The app is fully functional without them — price fields show "coming soon" placeholders in the UI. Return here once eBay approves your developer account.
+
+---
+
 ## Task 8: Price & Demand Fetcher
 
 **Files:**
-- Create: `src/lib/bricklink.ts`
+- Create: `src/lib/ebay.ts`
 - Create: `src/app/api/prices/fetch/route.ts`
-- Create: `src/__tests__/bricklink.test.ts`
+- Create: `src/__tests__/ebay.test.ts`
 
 **Step 1: Write failing test**
 
-Create `src/__tests__/bricklink.test.ts`:
+Create `src/__tests__/ebay.test.ts`:
 ```typescript
-import { normalizeDemandScore } from '@/lib/bricklink'
+import { normalizeDemandScore, parseEbayPrices } from '@/lib/ebay'
 
 describe('normalizeDemandScore', () => {
   it('clamps score between 0 and 100', () => {
@@ -1211,79 +1782,108 @@ describe('normalizeDemandScore', () => {
     expect(normalizeDemandScore(50, 100)).toBe(50)
   })
 })
+
+describe('parseEbayPrices', () => {
+  it('extracts avg, min, max from sold listing prices', () => {
+    const prices = [100, 200, 300]
+    const result = parseEbayPrices(prices)
+    expect(result.avg_price_usd).toBe(200)
+    expect(result.min_price_usd).toBe(100)
+    expect(result.max_price_usd).toBe(300)
+  })
+
+  it('returns nulls for empty price list', () => {
+    const result = parseEbayPrices([])
+    expect(result.avg_price_usd).toBeNull()
+  })
+})
 ```
 
 **Step 2: Run test to verify it fails**
 
 ```bash
-npm test bricklink.test.ts
+npm test ebay.test.ts
 ```
 Expected: FAIL
 
-**Step 3: Create `src/lib/bricklink.ts`**
+**Step 3: Create `src/lib/ebay.ts`**
 
 ```typescript
-// Demand score: normalize listing count against a reference max (100 listings = score of 100)
-export function normalizeDemandScore(listingsCount: number, referenceMax: number = 100): number {
+// Demand score: normalize sold listing count against a reference max (50 sold = score of 100)
+export function normalizeDemandScore(listingsCount: number, referenceMax: number = 50): number {
   return Math.min(100, Math.round((listingsCount / referenceMax) * 100))
+}
+
+export function parseEbayPrices(prices: number[]): {
+  avg_price_usd: number | null
+  min_price_usd: number | null
+  max_price_usd: number | null
+} {
+  if (prices.length === 0) return { avg_price_usd: null, min_price_usd: null, max_price_usd: null }
+  const avg = prices.reduce((a, b) => a + b, 0) / prices.length
+  return {
+    avg_price_usd: Math.round(avg * 100) / 100,
+    min_price_usd: Math.min(...prices),
+    max_price_usd: Math.max(...prices),
+  }
 }
 
 export interface PriceSnapshot {
   source: string
-  avg_price_usd: number
-  min_price_usd: number
-  max_price_usd: number
+  avg_price_usd: number | null
+  min_price_usd: number | null
+  max_price_usd: number | null
   demand_score: number
   listings_count: number
 }
 
-export async function fetchBricklinkPrices(setNumber: string): Promise<PriceSnapshot | null> {
-  // BrickLink uses OAuth 1.0a — assemble auth header
-  const url = `https://api.bricklink.com/api/store/v1/items/SET/${setNumber}-1/price?guide_type=sold&new_or_used=N`
-  const authHeader = buildBricklinkAuthHeader('GET', url)
+export async function fetchEbayPrices(setNumber: string): Promise<PriceSnapshot | null> {
+  // eBay Finding API — findCompletedItems for sealed LEGO sets (category 19006 = LEGO Sets)
+  const params = new URLSearchParams({
+    'OPERATION-NAME': 'findCompletedItems',
+    'SERVICE-VERSION': '1.0.0',
+    'SECURITY-APPNAME': process.env.EBAY_APP_ID!,
+    'RESPONSE-DATA-FORMAT': 'JSON',
+    'keywords': `LEGO ${setNumber} sealed`,
+    'categoryId': '19006',
+    'itemFilter(0).name': 'SoldItemsOnly',
+    'itemFilter(0).value': 'true',
+    'itemFilter(1).name': 'Condition',
+    'itemFilter(1).value': '1000', // New/Sealed
+    'sortOrder': 'EndTimeSoonest',
+    'paginationInput.entriesPerPage': '50',
+  })
 
-  const res = await fetch(url, { headers: { Authorization: authHeader } })
+  const res = await fetch(
+    `https://svcs.ebay.com/services/search/FindingService/v1?${params.toString()}`
+  )
   if (!res.ok) return null
 
   const data = await res.json()
-  const pg = data.data?.price_guide
-  if (!pg) return null
+  const items = data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item ?? []
+  if (items.length === 0) return null
 
-  const listingsCount = pg.total_quantity ?? 0
+  const prices: number[] = items
+    .map((item: Record<string, unknown>) => {
+      const priceArr = (item.sellingStatus as Record<string, unknown>[])?.[0]?.currentPrice as Record<string, unknown>[] | undefined
+      return priceArr ? parseFloat(priceArr[0]?.['__value__'] as string) : null
+    })
+    .filter((p: number | null): p is number => p !== null && !isNaN(p))
+
+  const parsed = parseEbayPrices(prices)
   return {
-    source: 'bricklink',
-    avg_price_usd: parseFloat(pg.avg_price ?? '0'),
-    min_price_usd: parseFloat(pg.min_price ?? '0'),
-    max_price_usd: parseFloat(pg.max_price ?? '0'),
-    demand_score: normalizeDemandScore(listingsCount),
-    listings_count: listingsCount,
+    source: 'ebay',
+    ...parsed,
+    demand_score: normalizeDemandScore(prices.length),
+    listings_count: prices.length,
   }
-}
-
-function buildBricklinkAuthHeader(method: string, url: string): string {
-  // OAuth 1.0a signature — parameters from env
-  const consumerKey = process.env.BRICKLINK_CONSUMER_KEY!
-  const token = process.env.BRICKLINK_TOKEN!
-  const nonce = Math.random().toString(36).substring(2)
-  const timestamp = Math.floor(Date.now() / 1000).toString()
-  return [
-    `OAuth realm=""`,
-    `oauth_consumer_key="${consumerKey}"`,
-    `oauth_token="${token}"`,
-    `oauth_signature_method="HMAC-SHA1"`,
-    `oauth_timestamp="${timestamp}"`,
-    `oauth_nonce="${nonce}"`,
-    `oauth_version="1.0"`,
-    // Note: full HMAC-SHA1 signature implementation needed here in production
-    // Use a library like 'oauth-1.0a' for the complete signature
-  ].join(', ')
 }
 ```
 
 **Step 4: Run test to verify it passes**
 
 ```bash
-npm test bricklink.test.ts
+npm test ebay.test.ts
 ```
 Expected: PASS
 
@@ -1293,7 +1893,7 @@ Expected: PASS
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { fetchBricklinkPrices } from '@/lib/bricklink'
+import { fetchEbayPrices } from '@/lib/ebay'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -1307,8 +1907,8 @@ export async function GET(request: NextRequest) {
   const { data: set } = await supabase.from('sets').select('id').eq('set_number', setNumber).single()
   if (!set) return NextResponse.json({ error: 'Set not found in database — run /api/lego-status first' }, { status: 404 })
 
-  const snapshot = await fetchBricklinkPrices(setNumber)
-  if (!snapshot) return NextResponse.json({ error: 'Could not fetch prices from BrickLink' }, { status: 502 })
+  const snapshot = await fetchEbayPrices(setNumber)
+  if (!snapshot) return NextResponse.json({ error: 'Could not fetch prices from eBay' }, { status: 502 })
 
   const serviceSupabase = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1338,12 +1938,12 @@ Expected: JSON snapshot written to `price_snapshots` table. Verify in Supabase d
 
 ```bash
 git add -A
-git commit -m "feat: add BrickLink price fetcher with demand score normalization"
+git commit -m "feat: add eBay price fetcher using completed sold listings"
 ```
 
 ---
 
-## Task 9: Alerts & Recommendations
+## Task 9: Alerts & Recommendations (Phase 2)
 
 **Files:**
 - Create: `src/lib/alerts.ts`
@@ -1776,19 +2376,28 @@ git commit -m "feat: add user settings page with configurable alert thresholds"
 
 Run through each component end-to-end in the QA environment before promoting to prod.
 
-**Checklist:**
+### Phase 1 Checklist (complete before going to production)
 - [ ] Login and logout work; unauthenticated routes redirect to `/login`
+- [ ] Admin can invite a new user via `/admin/users`; invited user receives email
+- [ ] Admin can change a user's role; member cannot access `/admin/users`
 - [ ] Photo upload detects set numbers from a real LEGO box photo
+- [ ] Manual set number entry looks up and adds a set correctly
+- [ ] CSV upload previews rows correctly, rejects bad rows, imports valid rows
 - [ ] Confirmed set numbers are fetched from Rebrickable and appear in `sets` table
 - [ ] Adding an inventory item saves correctly; duplicate guard fires a warning at 3 existing copies
 - [ ] Editing and deleting an inventory item works
 - [ ] Marking a set as sold captures sale price and platform; item moves to Sold History view
+- [ ] Price fields show "coming soon" placeholder cleanly — no broken UI
+- [ ] Alert settings page loads and saves correctly
+- [ ] All `.env.local` values are gitignored; `.env.example` is committed with blank values
+- [ ] Run full test suite: `npm test` — all tests pass
+
+### Phase 2 Checklist (complete after eBay API approval)
 - [ ] `/api/prices/fetch?set_number=75192` writes a snapshot to `price_snapshots`
+- [ ] Price history chart appears on set detail page
 - [ ] `/api/alerts/run` detects the seeded price spike and creates an alert
 - [ ] Alert appears on the `/alerts` page
 - [ ] Changing alert thresholds in `/settings` affects what alerts are generated
-- [ ] All `.env.local` values are gitignored; `.env.example` is committed with blank values
-- [ ] Run full test suite: `npm test` — all tests pass
 
 ---
 
@@ -1809,10 +2418,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<prod anon key>
 SUPABASE_SERVICE_ROLE_KEY=<prod service role key>
 GOOGLE_CLOUD_VISION_API_KEY=<same>
 REBRICKABLE_API_KEY=<same>
-BRICKLINK_CONSUMER_KEY=<same>
-BRICKLINK_CONSUMER_SECRET=<same>
-BRICKLINK_TOKEN=<same>
-BRICKLINK_TOKEN_SECRET=<same>
+EBAY_APP_ID=<same>
 ```
 
 **Step 3: Deploy to Vercel**
