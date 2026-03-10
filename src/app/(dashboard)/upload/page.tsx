@@ -24,6 +24,7 @@ export default function UploadPage() {
   const [manualInput, setManualInput] = useState('')
   const [csvPreview, setCsvPreview] = useState<CsvPreview | null>(null)
   const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [backfillMode, setBackfillMode] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
   const [importMessage, setImportMessage] = useState('')
   const router = useRouter()
@@ -60,6 +61,8 @@ export default function UploadPage() {
     const file = e.target.files?.[0]
     if (!file) return
     setCsvFile(file)
+    setCsvPreview(null)
+    setImportMessage('')
     const form = new FormData()
     form.append('file', file)
     const res = await fetch('/api/inventory/import', { method: 'POST', body: form })
@@ -73,20 +76,31 @@ export default function UploadPage() {
     const form = new FormData()
     form.append('file', csvFile)
     form.append('confirm', 'true')
+    if (backfillMode) form.append('backfill', 'true')
     const res = await fetch('/api/inventory/import', { method: 'POST', body: form })
     const data = await res.json()
     const results: { status: string; set_number: string; reason?: string }[] = data.results ?? []
-    const saved = results.filter(r => r.status === 'saved').length
-    const skipped = results.filter(r => r.status === 'skipped').length
-    const errors = results.filter(r => r.status === 'error').length
-    let msg = `${saved} set${saved !== 1 ? 's' : ''} imported successfully.`
-    if (skipped > 0) msg += ` ${skipped} skipped (set number not found on Rebrickable).`
-    if (errors > 0) msg += ` ${errors} failed.`
-    setImportMessage(msg)
+    if (backfillMode) {
+      const updated = results.filter(r => r.status === 'updated').length
+      const skipped = results.filter(r => r.status === 'skipped').length
+      const errors = results.filter(r => r.status === 'error').length
+      let msg = `${updated} item${updated !== 1 ? 's' : ''} updated.`
+      if (skipped > 0) msg += ` ${skipped} skipped (no matching inventory).`
+      if (errors > 0) msg += ` ${errors} failed.`
+      setImportMessage(msg)
+    } else {
+      const saved = results.filter(r => r.status === 'saved').length
+      const skipped = results.filter(r => r.status === 'skipped').length
+      const errors = results.filter(r => r.status === 'error').length
+      let msg = `${saved} set${saved !== 1 ? 's' : ''} imported successfully.`
+      if (skipped > 0) msg += ` ${skipped} skipped (set number not found on Rebrickable).`
+      if (errors > 0) msg += ` ${errors} failed.`
+      setImportMessage(msg)
+      if (saved > 0) setTimeout(() => router.push('/dashboard'), 2000)
+    }
     setCsvPreview(null)
     setCsvFile(null)
     setImportLoading(false)
-    if (saved > 0) setTimeout(() => router.push('/dashboard'), 2000)
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -267,6 +281,20 @@ export default function UploadPage() {
             </a>
           </div>
 
+          {/* Backfill toggle */}
+          <label className="flex items-start gap-3 bg-[#2A2A2A] border border-gray-700 rounded-lg p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={backfillMode}
+              onChange={e => { setBackfillMode(e.target.checked); setCsvPreview(null); setImportMessage('') }}
+              className="mt-0.5 w-4 h-4 accent-[#DA291C] flex-shrink-0"
+            />
+            <div>
+              <p className="text-sm font-medium text-white">Backfill mode</p>
+              <p className="text-xs text-gray-400 mt-0.5">Only update existing inventory items — no new sets will be created. If the CSV has more rows than items in your inventory for a set, the most expensive prices are used.</p>
+            </div>
+          </label>
+
           <input type="file" accept=".csv" onChange={handleCsvUpload}
             className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-[#DA291C] file:text-white hover:file:bg-red-700" />
 
@@ -289,7 +317,7 @@ export default function UploadPage() {
               )}
               <button onClick={confirmCsvImport} disabled={importLoading || csvPreview.valid.length === 0}
                 className="w-full bg-[#DA291C] text-white py-2 px-4 rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50">
-                {importLoading ? 'Importing…' : `Import ${csvPreview.valid.length} Sets`}
+                {importLoading ? (backfillMode ? 'Updating…' : 'Importing…') : backfillMode ? `Backfill ${csvPreview.valid.length} Rows` : `Import ${csvPreview.valid.length} Sets`}
               </button>
             </div>
           )}
