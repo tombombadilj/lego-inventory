@@ -45,17 +45,26 @@ export async function POST(request: NextRequest) {
 
   // --- BACKFILL MODE: update existing items only, no new inserts ---
   if (backfill) {
-    // Fetch existing inventory items for this user, joined with set_number
+    // Step 1: resolve set_numbers → set IDs
+    const { data: matchedSets } = await supabase
+      .from('sets')
+      .select('id, set_number')
+      .in('set_number', setNumbers)
+
+    const setIdToNumber = new Map((matchedSets ?? []).map(s => [s.id, s.set_number]))
+    const matchedSetIds = [...setIdToNumber.keys()]
+
+    // Step 2: fetch existing inventory items for this user filtered by those set IDs
     const { data: existingItems } = await supabase
       .from('inventory_items')
-      .select('id, sets!inner(set_number)')
+      .select('id, set_id')
       .eq('added_by', user.id)
-      .in('sets.set_number', setNumbers)
+      .in('set_id', matchedSetIds)
 
     // Group existing item IDs by set_number
     const existingBySet = new Map<string, string[]>()
-    for (const item of (existingItems ?? []) as unknown as { id: string; sets: { set_number: string }[] }[]) {
-      const sn = item.sets[0]?.set_number
+    for (const item of (existingItems ?? []) as { id: string; set_id: string }[]) {
+      const sn = setIdToNumber.get(item.set_id)
       if (!sn) continue
       if (!existingBySet.has(sn)) existingBySet.set(sn, [])
       existingBySet.get(sn)!.push(item.id)
