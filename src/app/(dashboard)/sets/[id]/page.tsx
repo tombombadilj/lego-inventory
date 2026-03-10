@@ -55,6 +55,7 @@ export default function SetDetailPage() {
   const [group, setGroup] = useState<SetGroup | null>(null)
   const [snapshot, setSnapshot] = useState<PriceSnapshot | null>(null)
   const [priceLoading, setPriceLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<Modal>(null)
   const [form, setForm] = useState<Record<string, string>>({})
@@ -92,18 +93,34 @@ export default function SetDetailPage() {
     setLoading(false)
   }
 
-  async function loadPriceData() {
-    setPriceLoading(true)
+  async function loadPriceData(force = false) {
+    if (force) setRefreshing(true)
+    else setPriceLoading(true)
     try {
-      const res = await fetch(`/api/prices/fetch?set_number=${setNumber}`)
-      if (res.ok) setSnapshot(await res.json())
+      const url = `/api/prices/fetch?set_number=${setNumber}${force ? '&force=true' : ''}`
+      const res = await fetch(url)
+      const data = await res.json()
+      // 429 too_soon: server still returns the cached snapshot inside data.cached
+      if (res.status === 429 && data.cached) setSnapshot(data.cached)
+      else if (res.ok) setSnapshot(data)
     } catch { /* silently degrade */ }
-    setPriceLoading(false)
+    if (force) setRefreshing(false)
+    else setPriceLoading(false)
+  }
+
+  function getRefreshStatus(fetchedAt: string): { disabled: boolean; label: string } {
+    const COOLDOWN_MS = 48 * 60 * 60 * 1000
+    const age = Date.now() - new Date(fetchedAt).getTime()
+    if (age < COOLDOWN_MS) {
+      const remainingHours = Math.ceil((COOLDOWN_MS - age) / (1000 * 60 * 60))
+      return { disabled: true, label: `Refresh in ${remainingHours}h` }
+    }
+    return { disabled: false, label: 'Refresh prices' }
   }
 
   useEffect(() => {
     loadData()
-    loadPriceData()
+    loadPriceData(false)
   }, [setNumber])
 
   function openEdit(item: InventoryItem) {
@@ -209,14 +226,33 @@ export default function SetDetailPage() {
         <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 mb-6">
           <div className="flex items-center justify-between mb-3">
             <p className="text-white font-semibold text-sm">Resale Market</p>
-            {snapshot && (
-              <p className="text-gray-500 text-xs">
-                Updated {new Date(snapshot.fetched_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                {snapshot.source && snapshot.source !== 'none' && (
-                  <span className="ml-1 text-gray-600">· {snapshot.source}</span>
-                )}
-              </p>
-            )}
+            <div className="flex items-center gap-2">
+              {snapshot && (
+                <p className="text-gray-500 text-xs">
+                  Updated {new Date(snapshot.fetched_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {snapshot.source && snapshot.source !== 'none' && (
+                    <span className="ml-1 text-gray-600">· {snapshot.source}</span>
+                  )}
+                </p>
+              )}
+              {snapshot && (() => {
+                const { disabled, label } = getRefreshStatus(snapshot.fetched_at)
+                return (
+                  <button
+                    onClick={() => loadPriceData(true)}
+                    disabled={disabled || refreshing}
+                    title={disabled ? label : 'Fetch latest prices from eBay'}
+                    className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
+                      disabled || refreshing
+                        ? 'border-gray-700 text-gray-600 cursor-not-allowed'
+                        : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 cursor-pointer'
+                    }`}
+                  >
+                    {refreshing ? 'Fetching…' : label}
+                  </button>
+                )
+              })()}
+            </div>
           </div>
 
           {priceLoading ? (

@@ -4,7 +4,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { fetchBrickOwlPriceData } from '@/lib/brickowl'
 import { fetchEbayPriceData } from '@/lib/ebay'
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const CACHE_TTL_MS = 48 * 60 * 60 * 1000
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
 
   const setNumber = request.nextUrl.searchParams.get('set_number')
   if (!setNumber) return NextResponse.json({ error: 'set_number required' }, { status: 400 })
+
+  const force = request.nextUrl.searchParams.get('force') === 'true'
 
   // Resolve set_id from set_number
   const { data: setRow } = await supabase
@@ -24,7 +26,7 @@ export async function GET(request: NextRequest) {
   if (!setRow) return NextResponse.json({ error: `Set ${setNumber} not found` }, { status: 404 })
   const setId = setRow.id
 
-  // Return cached snapshot if within TTL
+  // Return cached snapshot if within TTL (skip cache when force=true)
   const { data: cached } = await supabase
     .from('price_snapshots')
     .select('*')
@@ -33,8 +35,20 @@ export async function GET(request: NextRequest) {
     .limit(1)
     .single()
 
-  if (cached && Date.now() - new Date(cached.fetched_at).getTime() < CACHE_TTL_MS) {
+  const cacheAge = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity
+
+  if (!force && cached && cacheAge < CACHE_TTL_MS) {
     return NextResponse.json(cached)
+  }
+
+  // Enforce 2-day cooldown even on forced requests
+  if (force && cached && cacheAge < CACHE_TTL_MS) {
+    const unlockMs = CACHE_TTL_MS - cacheAge
+    const unlockHours = Math.ceil(unlockMs / (1000 * 60 * 60))
+    return NextResponse.json(
+      { error: 'too_soon', message: `Refresh available in ${unlockHours}h`, cached },
+      { status: 429 }
+    )
   }
 
   // Fetch from both APIs in parallel
