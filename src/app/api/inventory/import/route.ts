@@ -54,8 +54,9 @@ export async function POST(request: NextRequest) {
 
     // Group existing item IDs by set_number
     const existingBySet = new Map<string, string[]>()
-    for (const item of (existingItems ?? []) as { id: string; sets: { set_number: string } }[]) {
-      const sn = item.sets.set_number
+    for (const item of (existingItems ?? []) as unknown as { id: string; sets: { set_number: string }[] }[]) {
+      const sn = item.sets[0]?.set_number
+      if (!sn) continue
       if (!existingBySet.has(sn)) existingBySet.set(sn, [])
       existingBySet.get(sn)!.push(item.id)
     }
