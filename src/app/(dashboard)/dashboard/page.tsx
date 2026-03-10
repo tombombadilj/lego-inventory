@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
+import AlertsBell from '@/components/AlertsBell'
+import { getRecommendation } from '@/lib/recommendations'
 
 interface InventoryItem {
   id: string
@@ -28,7 +30,18 @@ interface InventoryItem {
   }
 }
 
+interface PriceSnapshot {
+  set_id: string
+  avg_price_usd: number | null
+  min_price_usd: number | null
+  max_price_usd: number | null
+  demand_score: number
+  listings_count: number
+  fetched_at: string
+}
+
 interface GroupedSet {
+  set_id: string
   set_number: string
   name: string
   theme: string | null
@@ -40,14 +53,21 @@ interface GroupedSet {
   total_paid: number
 }
 
+const PILL_STYLES = {
+  SELL: 'bg-green-900/60 text-green-400',
+  HOLD: 'bg-yellow-900/50 text-yellow-400',
+  WATCH: 'bg-orange-900/50 text-orange-400',
+  NO_DATA: 'bg-gray-700 text-gray-400',
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const { data: allItems } = await supabase
-    .from('inventory_items')
-    .select('*, sets(*)')
-    .order('created_at', { ascending: false })
+  const [{ data: allItems }, { data: settings }] = await Promise.all([
+    supabase.from('inventory_items').select('*, sets(*)').order('created_at', { ascending: false }),
+    supabase.from('user_settings').select('price_spike_pct, demand_drop_pts').eq('user_id', user!.id).single(),
+  ])
 
   const items = (allItems ?? []) as InventoryItem[]
   const activeItems = items.filter(i => !i.sold)
@@ -59,6 +79,7 @@ export default async function DashboardPage() {
     if (!acc[key]) {
       const retail = item.sets.override_retail_price_usd ?? item.sets.retail_price_usd
       acc[key] = {
+        set_id: item.sets.id,
         set_number: key,
         name: item.sets.name,
         theme: item.sets.theme,
@@ -76,6 +97,25 @@ export default async function DashboardPage() {
   }, {})
 
   const groupedSets = Object.values(grouped)
+
+  // Fetch latest price snapshot for each unique set_id
+  const setIds = [...new Set(groupedSets.map(g => g.set_id))]
+  let snapshotMap: Record<string, PriceSnapshot> = {}
+
+  if (setIds.length > 0) {
+    const { data: snapshots } = await supabase
+      .from('price_snapshots')
+      .select('set_id, avg_price_usd, min_price_usd, max_price_usd, demand_score, listings_count, fetched_at')
+      .in('set_id', setIds)
+      .order('fetched_at', { ascending: false })
+
+    // Keep only the most recent snapshot per set_id
+    for (const snap of (snapshots ?? []) as PriceSnapshot[]) {
+      if (!snapshotMap[snap.set_id]) snapshotMap[snap.set_id] = snap
+    }
+  }
+
+  const userSettings = settings ?? { price_spike_pct: 10, demand_drop_pts: 20 }
 
   const totalInvested = activeItems.reduce((sum, i) => sum + (i.purchase_price_usd ?? 0), 0)
   const totalSoldRevenue = soldItems.reduce((sum, i) => sum + (i.sold_price_usd ?? 0), 0)
@@ -95,6 +135,7 @@ export default async function DashboardPage() {
           <Link href="/upload" className="bg-[#DA291C] text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">
             + Add Sets
           </Link>
+          <AlertsBell />
           <Link href="/settings" className="text-gray-400 hover:text-white text-sm transition-colors" title="Settings">⚙️</Link>
           <LogoutButton />
         </div>
@@ -134,34 +175,62 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <div className="space-y-3 mb-8">
-            {groupedSets.map(group => (
-              <Link key={group.set_number} href={`/sets/${group.set_number}`}
-                className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 flex items-center gap-4 hover:border-gray-500 transition-colors block">
-                {group.image_url ? (
-                  <img src={group.image_url} alt={group.name} className="w-16 h-16 object-contain rounded-lg bg-white p-1 flex-shrink-0" />
-                ) : (
-                  <div className="w-16 h-16 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <span className="text-2xl">🧱</span>
+            {groupedSets.map(group => {
+              const snapshot = snapshotMap[group.set_id] ?? null
+              const avgPurchasePrice = group.items.length > 0
+                ? group.total_paid / group.items.filter(i => i.purchase_price_usd != null).length || null
+                : null
+              const { recommendation, reason } = getRecommendation(snapshot, {
+                purchase_price_usd: avgPurchasePrice,
+                retired: group.retired,
+                sell_threshold_pct: userSettings.price_spike_pct,
+                demand_drop_pts: userSettings.demand_drop_pts,
+              })
+
+              return (
+                <Link key={group.set_number} href={`/sets/${group.set_number}`}
+                  className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 flex items-center gap-4 hover:border-gray-500 transition-colors block">
+                  {group.image_url ? (
+                    <img src={group.image_url} alt={group.name} className="w-16 h-16 object-contain rounded-lg bg-white p-1 flex-shrink-0" />
+                  ) : (
+                    <div className="w-16 h-16 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-2xl">🧱</span>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-white font-medium truncate">{group.name}</p>
+                      {group.retired && (
+                        <span className="bg-yellow-900/50 text-yellow-400 text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0">RETIRED</span>
+                      )}
+                    </div>
+                    <p className="text-gray-400 text-xs">#{group.set_number} · {group.theme} · {group.piece_count?.toLocaleString()} pcs</p>
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      {group.items.length} {group.items.length === 1 ? 'copy' : 'copies'} · Paid ${group.total_paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
                   </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-white font-medium truncate">{group.name}</p>
-                    {group.retired && (
-                      <span className="bg-yellow-900/50 text-yellow-400 text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0">RETIRED</span>
+                  <div className="text-right flex-shrink-0 space-y-1">
+                    {snapshot?.avg_price_usd != null ? (
+                      <>
+                        <p className="text-white text-sm font-medium">
+                          ${snapshot.avg_price_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES[recommendation]}`} title={reason}>
+                          {recommendation}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-gray-500">Resale</p>
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES.NO_DATA}`}>
+                          NO DATA
+                        </span>
+                      </>
                     )}
                   </div>
-                  <p className="text-gray-400 text-xs">#{group.set_number} · {group.theme} · {group.piece_count?.toLocaleString()} pcs</p>
-                  <p className="text-gray-400 text-xs mt-0.5">
-                    {group.items.length} {group.items.length === 1 ? 'copy' : 'copies'} · Paid ${group.total_paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-xs text-gray-500">Resale</p>
-                  <p className="text-gray-400 text-sm">— coming soon</p>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              )
+            })}
           </div>
         )}
 
