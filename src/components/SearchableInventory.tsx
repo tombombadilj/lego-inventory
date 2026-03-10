@@ -5,6 +5,13 @@ import Image from 'next/image'
 import Link from 'next/link'
 import type { GroupedSet } from '@/types/inventory'
 
+const PILL_STYLES = {
+  SELL: 'bg-green-900/60 text-green-400',
+  HOLD: 'bg-yellow-900/50 text-yellow-400',
+  WATCH: 'bg-orange-900/50 text-orange-400',
+  NO_DATA: 'bg-gray-700 text-gray-400',
+}
+
 interface Props {
   groupedSets: GroupedSet[]
 }
@@ -108,9 +115,25 @@ export default function SearchableInventory({ groupedSets }: Props) {
                   })}
                 </p>
               </div>
-              <div className="text-right flex-shrink-0">
-                <p className="text-xs text-gray-500">Resale</p>
-                <p className="text-gray-400 text-sm">— coming soon</p>
+              <div className="text-right flex-shrink-0 space-y-1">
+                {group.avg_price_usd != null ? (
+                  <>
+                    <p className="text-white text-sm font-medium">
+                      ${group.avg_price_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES[group.recommendation ?? 'NO_DATA']}`}
+                      title={group.recommendation_reason}
+                    >
+                      {group.recommendation ?? 'NO_DATA'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-gray-500">Resale</p>
+                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES.NO_DATA}`}>NO DATA</span>
+                  </>
+                )}
               </div>
             </Link>
           ))}

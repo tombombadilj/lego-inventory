@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
+import { getRecommendation } from '@/lib/recommendations'
 
 interface InventoryItem {
   id: string
@@ -14,6 +16,16 @@ interface InventoryItem {
   sold_price_usd: number | null
   sold_date: string | null
   sold_via: string | null
+}
+
+interface PriceSnapshot {
+  avg_price_usd: number | null
+  min_price_usd: number | null
+  max_price_usd: number | null
+  demand_score: number
+  listings_count: number
+  fetched_at: string
+  source: string
 }
 
 interface SetGroup {
@@ -31,14 +43,25 @@ interface SetGroup {
 
 type Modal = { type: 'edit' | 'sell'; item: InventoryItem } | null
 
+const PILL_STYLES = {
+  SELL: 'bg-green-900/60 text-green-400 border-green-700',
+  HOLD: 'bg-yellow-900/50 text-yellow-400 border-yellow-700',
+  WATCH: 'bg-orange-900/50 text-orange-400 border-orange-700',
+  NO_DATA: 'bg-gray-700 text-gray-400 border-gray-600',
+}
+
 export default function SetDetailPage() {
   const { id: setNumber } = useParams<{ id: string }>()
   const router = useRouter()
   const [group, setGroup] = useState<SetGroup | null>(null)
+  const [snapshot, setSnapshot] = useState<PriceSnapshot | null>(null)
+  const [priceLoading, setPriceLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<Modal>(null)
   const [form, setForm] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [userSettings, setUserSettings] = useState({ price_spike_pct: 10, demand_drop_pts: 20 })
 
   async function loadData() {
     const res = await fetch('/api/sets?all=true')
@@ -72,7 +95,39 @@ export default function SetDetailPage() {
     setLoading(false)
   }
 
-  useEffect(() => { loadData() }, [setNumber])
+  async function loadPriceData(force = false) {
+    if (force) setRefreshing(true)
+    else setPriceLoading(true)
+    try {
+      const url = `/api/prices/fetch?set_number=${setNumber}${force ? '&force=true' : ''}`
+      const res = await fetch(url)
+      const data = await res.json()
+      // 429 too_soon: server still returns the cached snapshot inside data.cached
+      if (res.status === 429 && data.cached) setSnapshot(data.cached)
+      else if (res.ok) setSnapshot(data)
+    } catch { /* silently degrade */ }
+    if (force) setRefreshing(false)
+    else setPriceLoading(false)
+  }
+
+  function getRefreshStatus(fetchedAt: string): { disabled: boolean; label: string } {
+    const COOLDOWN_MS = 48 * 60 * 60 * 1000
+    const age = Date.now() - new Date(fetchedAt).getTime()
+    if (age < COOLDOWN_MS) {
+      const remainingHours = Math.ceil((COOLDOWN_MS - age) / (1000 * 60 * 60))
+      return { disabled: true, label: `Refresh in ${remainingHours}h` }
+    }
+    return { disabled: false, label: 'Refresh prices' }
+  }
+
+  useEffect(() => {
+    loadData()
+    loadPriceData(false)
+    fetch('/api/settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.price_spike_pct) setUserSettings({ price_spike_pct: d.price_spike_pct, demand_drop_pts: d.demand_drop_pts }) })
+      .catch(() => {})
+  }, [setNumber])
 
   function openEdit(item: InventoryItem) {
     setForm({
@@ -152,7 +207,7 @@ export default function SetDetailPage() {
         {/* Set header */}
         <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 flex gap-4 mb-6">
           {group.image_url ? (
-            <img src={group.image_url} alt={group.name} className="w-24 h-24 object-contain rounded-lg bg-white p-1 flex-shrink-0" />
+            <Image src={group.image_url} alt={group.name} width={96} height={96} className="object-contain rounded-lg bg-white p-1 flex-shrink-0" />
           ) : (
             <div className="w-24 h-24 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
               <span className="text-3xl">🧱</span>
@@ -173,9 +228,111 @@ export default function SetDetailPage() {
           </div>
         </div>
 
-        {/* Resale placeholder */}
-        <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 mb-6 text-center">
-          <p className="text-gray-500 text-sm">Resale price data — coming soon (Phase 2)</p>
+        {/* Resale price card */}
+        <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+                <p className="text-white font-semibold text-sm">Resale Market</p>
+                <p className="text-gray-600 text-xs">New/sealed asking prices · eBay</p>
+              </div>
+            <div className="flex items-center gap-2">
+              {snapshot && (
+                <p className="text-gray-500 text-xs">
+                  Updated {new Date(snapshot.fetched_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {snapshot.source && snapshot.source !== 'none' && (
+                    <span className="ml-1 text-gray-600">· {snapshot.source}</span>
+                  )}
+                </p>
+              )}
+              {snapshot && (() => {
+                const { disabled, label } = getRefreshStatus(snapshot.fetched_at)
+                return (
+                  <button
+                    onClick={() => loadPriceData(true)}
+                    disabled={disabled || refreshing}
+                    title={disabled ? label : 'Fetch latest prices from eBay'}
+                    className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
+                      disabled || refreshing
+                        ? 'border-gray-700 text-gray-600 cursor-not-allowed'
+                        : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 cursor-pointer'
+                    }`}
+                  >
+                    {refreshing ? 'Fetching…' : label}
+                  </button>
+                )
+              })()}
+            </div>
+          </div>
+
+          {priceLoading ? (
+            <p className="text-gray-500 text-sm animate-pulse">Fetching market data…</p>
+          ) : (() => {
+            const avgPurchase = group
+              ? group.items.filter(i => i.purchase_price_usd != null).reduce((s, i) => s + (i.purchase_price_usd ?? 0), 0) /
+                Math.max(group.items.filter(i => i.purchase_price_usd != null).length, 1)
+              : null
+            const { recommendation, reason } = getRecommendation(snapshot, {
+              purchase_price_usd: avgPurchase,
+              retired: group?.retired ?? false,
+              sell_threshold_pct: userSettings.price_spike_pct,
+              demand_drop_pts: userSettings.demand_drop_pts,
+            })
+
+            return snapshot?.avg_price_usd != null ? (
+              <>
+                {/* Price row */}
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className="text-center">
+                    <p className="text-xs text-gray-400 mb-0.5">Avg</p>
+                    <p className="text-white font-bold">${snapshot.avg_price_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="text-center border-x border-gray-700">
+                    <p className="text-xs text-gray-400 mb-0.5">Min</p>
+                    <p className="text-green-400 font-medium">${(snapshot.min_price_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-gray-400 mb-0.5">Max</p>
+                    <p className="text-red-400 font-medium">${(snapshot.max_price_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                </div>
+
+                {/* Demand row */}
+                <div className="flex items-center gap-3 mb-3 text-xs text-gray-400">
+                  <span
+                    title="How scarce sealed copies are vs. the total market. Higher = fewer New listings relative to Used, meaning sealed sets are being absorbed quickly."
+                    className="cursor-help border-b border-dashed border-gray-600"
+                  >
+                    Demand score
+                  </span>
+                  <span className="text-white font-medium">{snapshot.demand_score}/100</span>
+                  <span className="text-gray-600">·</span>
+                  <span>{snapshot.listings_count} active New listings</span>
+                </div>
+
+                {/* Demand bar */}
+                <div className="w-full bg-gray-700 rounded-full h-1.5 mb-2">
+                  <div
+                    className={`h-1.5 rounded-full transition-all ${snapshot.demand_score >= 60 ? 'bg-green-400' : snapshot.demand_score >= 30 ? 'bg-yellow-400' : 'bg-orange-400'}`}
+                    style={{ width: `${snapshot.demand_score}%` }}
+                  />
+                </div>
+                <p className="text-gray-600 text-xs mb-3">
+                  How scarce sealed copies are vs. the total market — higher means fewer New listings relative to Used, so sealed sets are being absorbed quickly.
+                </p>
+
+                {/* Recommendation */}
+                <div className={`flex items-start gap-2 p-3 rounded-lg border ${PILL_STYLES[recommendation]}`}>
+                  <span className="font-bold text-sm flex-shrink-0">{recommendation}</span>
+                  <span className="text-xs opacity-90">{reason}</span>
+                </div>
+              </>
+            ) : (
+              <div className={`flex items-center gap-2 p-3 rounded-lg border ${PILL_STYLES.NO_DATA}`}>
+                <span className="font-bold text-sm">NO DATA</span>
+                <span className="text-xs opacity-75">No resale data found. Prices will appear once eBay or BrickOwl data is fetched.</span>
+              </div>
+            )
+          })()}
         </div>
 
         {/* Your copies */}

@@ -25,6 +25,7 @@ export interface InventoryItem {
 }
 
 export interface GroupedSet {
+  set_id: string
   set_number: string
   name: string
   theme: string | null
@@ -34,4 +35,8 @@ export interface GroupedSet {
   retail_price: number | null
   items: InventoryItem[]
   total_paid: number
+  // Pre-computed server-side from latest price snapshot
+  avg_price_usd?: number | null
+  recommendation?: 'SELL' | 'HOLD' | 'WATCH' | 'NO_DATA'
+  recommendation_reason?: string
 }
