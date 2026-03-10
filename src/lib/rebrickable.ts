@@ -17,7 +17,7 @@ export function parseSetData(raw: Record<string, unknown>, theme: string | null)
     piece_count: (raw.num_parts as number) ?? null,
     retail_price_usd: null, // Rebrickable doesn't reliably provide price
     image_url: (raw.set_img_url as string) ?? null,
-    retired: false,
+    retired: (raw.is_retired as boolean) ?? false,
   }
 }
 
