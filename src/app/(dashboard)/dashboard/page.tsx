@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
 import AlertsBell from '@/components/AlertsBell'
-import { getRecommendation } from '@/lib/recommendations'
+import { getRecommendation, getRetirementStatus } from '@/lib/recommendations'
 import type { InventoryItem, GroupedSet } from '@/types/inventory'
 import SearchableInventory from '@/components/SearchableInventory'
 
@@ -43,6 +43,10 @@ export default async function DashboardPage() {
         theme: item.sets.theme,
         piece_count: item.sets.piece_count,
         retired: item.sets.override_retired ?? item.sets.retired,
+        override_retired: item.sets.override_retired,
+        retirement_date: item.sets.retirement_date,
+        retiring_soon_override: item.sets.retiring_soon_override,
+        override_retirement_date: item.sets.override_retirement_date,
         image_url: item.sets.image_url,
         retail_price: retail,
         items: [],
@@ -60,15 +64,25 @@ export default async function DashboardPage() {
   const setIds = [...new Set(groupedSets.map(g => g.set_id))]
   let snapshotMap: Record<string, PriceSnapshot> = {}
 
+  // One query per set_id: the true latest row for each set. A single global
+  // `.in(set_id).order(fetched_at desc)` result is capped by PostgREST's default
+  // row limit; within that window the first row per set can be stale (newest
+  // snapshot for that set may fall outside the slice). `/api/prices/fetch` uses
+  // `.eq(set_id).order().limit(1)` — this matches that behavior.
   if (setIds.length > 0) {
-    const { data: snapshots } = await supabase
-      .from('price_snapshots')
-      .select('set_id, avg_price_usd, min_price_usd, max_price_usd, demand_score, listings_count, fetched_at')
-      .in('set_id', setIds)
-      .order('fetched_at', { ascending: false })
-
-    for (const snap of (snapshots ?? []) as PriceSnapshot[]) {
-      if (!snapshotMap[snap.set_id]) snapshotMap[snap.set_id] = snap
+    const rows = await Promise.all(
+      setIds.map(setId =>
+        supabase
+          .from('price_snapshots')
+          .select('set_id, avg_price_usd, min_price_usd, max_price_usd, demand_score, listings_count, fetched_at')
+          .eq('set_id', setId)
+          .order('fetched_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      )
+    )
+    for (const { data } of rows) {
+      if (data) snapshotMap[data.set_id] = data as PriceSnapshot
     }
   }
 
@@ -86,11 +100,17 @@ export default async function DashboardPage() {
       sell_threshold_pct: userSettings.price_spike_pct,
       demand_drop_pts: userSettings.demand_drop_pts,
     })
+    const retirement_status = getRetirementStatus({
+      retirement_date: group.retirement_date ?? null,
+      override_retired: group.override_retired ?? null,
+      retiring_soon_override: group.retiring_soon_override ?? null,
+    })
     return {
       ...group,
       avg_price_usd: snapshot?.avg_price_usd ?? null,
       recommendation,
       recommendation_reason: reason,
+      retirement_status,
     }
   })
 

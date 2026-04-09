@@ -98,11 +98,6 @@ export default function SearchableInventory({ groupedSets }: Props) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-white font-medium truncate">{group.name}</p>
-                  {group.retired && (
-                    <span className="bg-yellow-900/50 text-yellow-400 text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0">
-                      RETIRED
-                    </span>
-                  )}
                 </div>
                 <p className="text-gray-400 text-xs">
                   #{group.set_number} · {group.theme} · {group.piece_count?.toLocaleString()} pcs
@@ -121,6 +116,16 @@ export default function SearchableInventory({ groupedSets }: Props) {
                     <p className="text-white text-sm font-medium">
                       ${group.avg_price_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
+                    {group.retirement_status === 'Retired' && (
+                      <span className="bg-red-600 text-white text-[10px] font-bold px-[7px] py-[2px] rounded-[3px] tracking-wide">
+                        RETIRED
+                      </span>
+                    )}
+                    {group.retirement_status === 'Retiring Soon' && (
+                      <span className="bg-amber-600 text-white text-[10px] font-bold px-[7px] py-[2px] rounded-[3px] tracking-wide">
+                        RETIRING SOON
+                      </span>
+                    )}
                     <span
                       className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES[group.recommendation ?? 'NO_DATA']}`}
                       title={group.recommendation_reason}
@@ -131,6 +136,16 @@ export default function SearchableInventory({ groupedSets }: Props) {
                 ) : (
                   <>
                     <p className="text-xs text-gray-500">Resale</p>
+                    {group.retirement_status === 'Retired' && (
+                      <span className="bg-red-600 text-white text-[10px] font-bold px-[7px] py-[2px] rounded-[3px] tracking-wide">
+                        RETIRED
+                      </span>
+                    )}
+                    {group.retirement_status === 'Retiring Soon' && (
+                      <span className="bg-amber-600 text-white text-[10px] font-bold px-[7px] py-[2px] rounded-[3px] tracking-wide">
+                        RETIRING SOON
+                      </span>
+                    )}
                     <span className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES.NO_DATA}`}>NO DATA</span>
                   </>
                 )}

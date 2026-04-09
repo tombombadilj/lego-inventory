@@ -21,6 +21,9 @@ export interface InventoryItem {
     image_url: string | null
     override_retail_price_usd: number | null
     override_retired: boolean | null
+    retirement_date: string | null
+    retiring_soon_override: boolean | null
+    override_retirement_date: string | null
   }
 }
 
@@ -31,6 +34,10 @@ export interface GroupedSet {
   theme: string | null
   piece_count: number | null
   retired: boolean
+  override_retired: boolean | null
+  retirement_date: string | null
+  retiring_soon_override: boolean | null
+  override_retirement_date: string | null
   image_url: string | null
   retail_price: number | null
   items: InventoryItem[]
@@ -39,4 +46,5 @@ export interface GroupedSet {
   avg_price_usd?: number | null
   recommendation?: 'SELL' | 'HOLD' | 'WATCH' | 'NO_DATA'
   recommendation_reason?: string
+  retirement_status?: 'Retired' | 'Retiring Soon' | 'Active'
 }

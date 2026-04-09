@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { fetchSetFromRebrickable } from '@/lib/rebrickable'
+import { fetchRetirementDate } from '@/lib/brickset'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -43,5 +44,16 @@ export async function GET(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const retirementDate = await fetchRetirementDate(setNumber)
+  if (retirementDate !== null) {
+    const dateStr = retirementDate.toISOString().slice(0, 10)
+    await serviceSupabase
+      .from('sets')
+      .update({ retirement_date: dateStr })
+      .eq('set_number', setNumber)
+    // retirement date is supplementary — ignore update errors
+  }
+
   return NextResponse.json(upserted)
 }

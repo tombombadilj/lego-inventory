@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { getRecommendation } from '@/lib/recommendations'
+import { createClient } from '@/lib/supabase/client'
 
 interface InventoryItem {
   id: string
@@ -37,6 +38,8 @@ interface SetGroup {
   override_retail_price_usd: number | null
   retired: boolean
   override_retired: boolean | null
+  retiring_soon_override: boolean | null
+  override_retirement_date: string | null
   image_url: string | null
   items: InventoryItem[]
 }
@@ -53,6 +56,7 @@ const PILL_STYLES = {
 export default function SetDetailPage() {
   const { id: setNumber } = useParams<{ id: string }>()
   const router = useRouter()
+  const supabase = createClient()
   const [group, setGroup] = useState<SetGroup | null>(null)
   const [snapshot, setSnapshot] = useState<PriceSnapshot | null>(null)
   const [priceLoading, setPriceLoading] = useState(true)
@@ -62,6 +66,8 @@ export default function SetDetailPage() {
   const [form, setForm] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [userSettings, setUserSettings] = useState({ price_spike_pct: 10, demand_drop_pts: 20 })
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [overrideDateInput, setOverrideDateInput] = useState<string>('')
 
   async function loadData() {
     const res = await fetch('/api/sets?all=true')
@@ -78,6 +84,8 @@ export default function SetDetailPage() {
       override_retail_price_usd: s.override_retail_price_usd,
       retired: s.override_retired ?? s.retired,
       override_retired: s.override_retired,
+      retiring_soon_override: s.retiring_soon_override ?? null,
+      override_retirement_date: s.override_retirement_date ?? null,
       image_url: s.image_url,
       items: filtered.map((i: { id: string; purchased_from: string | null; purchase_price_usd: number | null; purchase_date: string | null; condition: string; notes: string | null; sold: boolean; sold_price_usd: number | null; sold_date: string | null; sold_via: string | null }) => ({
         id: i.id,
@@ -127,7 +135,14 @@ export default function SetDetailPage() {
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.price_spike_pct) setUserSettings({ price_spike_pct: d.price_spike_pct, demand_drop_pts: d.demand_drop_pts }) })
       .catch(() => {})
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setIsAdmin(user?.email === 'jasonchiu0803@gmail.com')
+    })
   }, [setNumber])
+
+  useEffect(() => {
+    if (group) setOverrideDateInput(group.override_retirement_date ?? '')
+  }, [group])
 
   function openEdit(item: InventoryItem) {
     setForm({
@@ -227,6 +242,64 @@ export default function SetDetailPage() {
             </div>
           </div>
         </div>
+
+        {isAdmin && group && (
+          <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 mb-6">
+            <h3 className="text-sm font-semibold text-gray-300 mb-3">Admin Overrides</h3>
+
+            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!group.override_retired}
+                onChange={async (e) => {
+                  await fetch(`/api/admin/sets/${group.set_number}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ override_retired: e.target.checked }),
+                  })
+                  loadData()
+                }}
+                className="w-4 h-4"
+              />
+              <span className="text-sm text-gray-300">Mark as Retired (manual override)</span>
+            </label>
+
+            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!group.retiring_soon_override}
+                onChange={async (e) => {
+                  await fetch(`/api/admin/sets/${group.set_number}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ retiring_soon_override: e.target.checked }),
+                  })
+                  loadData()
+                }}
+                className="w-4 h-4"
+              />
+              <span className="text-sm text-gray-300">Mark as Retiring Soon (manual override)</span>
+            </label>
+
+            <div>
+              <label className="text-sm text-gray-400 block mb-1">Override retirement date</label>
+              <input
+                type="date"
+                value={overrideDateInput}
+                onChange={(e) => setOverrideDateInput(e.target.value)}
+                onBlur={async (e) => {
+                  await fetch(`/api/admin/sets/${group.set_number}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ override_retirement_date: e.target.value || null }),
+                  })
+                  loadData()
+                }}
+                className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-white"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Resale price card */}
         <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 mb-6">
