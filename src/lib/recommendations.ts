@@ -1,5 +1,7 @@
 export type Recommendation = 'SELL' | 'HOLD' | 'WATCH' | 'NO_DATA'
 
+export type RetirementStatus = 'Retired' | 'Retiring Soon' | 'Active'
+
 export interface RecommendationResult {
   recommendation: Recommendation
   reason: string
@@ -74,4 +76,34 @@ export function getRecommendation(
     recommendation: 'HOLD',
     reason: `Resale market looks stable at $${avg_price_usd.toFixed(2)} avg. No strong sell signal yet.`,
   }
+}
+
+/**
+ * Pure function — determines retirement status based on override flags and retirement date.
+ * Priority: manual Retired > auto-Retired (past date) > manual Retiring Soon > auto-Retiring Soon (within 6 months) > Active.
+ */
+export function getRetirementStatus(set: {
+  retirement_date: string | null
+  override_retired: boolean | null
+  retiring_soon_override: boolean | null
+}): RetirementStatus {
+  // Manual Retired override wins first
+  if (set.override_retired) return 'Retired'
+
+  // Auto-Retired: past retirement_date (beats retiring_soon_override per spec priority table)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  if (set.retirement_date && set.retirement_date <= todayStr) return 'Retired'
+
+  // Manual Retiring Soon override (only applies when not already auto-Retired)
+  if (set.retiring_soon_override) return 'Retiring Soon'
+
+  // Auto Retiring Soon: future date within 6 months
+  if (set.retirement_date) {
+    const sixMonthsFromNow = new Date()
+    sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6)
+    const sixMonthsStr = sixMonthsFromNow.toISOString().slice(0, 10)
+    if (set.retirement_date <= sixMonthsStr) return 'Retiring Soon'
+  }
+
+  return 'Active'
 }
