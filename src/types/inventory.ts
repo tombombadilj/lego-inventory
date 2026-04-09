@@ -46,4 +46,5 @@ export interface GroupedSet {
   avg_price_usd?: number | null
   recommendation?: 'SELL' | 'HOLD' | 'WATCH' | 'NO_DATA'
   recommendation_reason?: string
+  retirement_status?: 'Retired' | 'Retiring Soon' | 'Active'
 }

@@ -73,4 +73,75 @@ describe('SearchableInventory', () => {
     expect(screen.queryByPlaceholderText(/search/i)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /add sets/i })).toBeInTheDocument()
   })
+
+  test('shows red RETIRED badge when retirement_status is Retired', () => {
+    const sets = [{
+      set_id: 'abc',
+      set_number: '10270',
+      name: 'Bookshop',
+      theme: 'Modular Buildings',
+      piece_count: 2504,
+      retired: true,
+      override_retired: null,
+      retirement_date: null,
+      retiring_soon_override: null,
+      override_retirement_date: null,
+      image_url: null,
+      retail_price: 179.99,
+      items: [{ id: '1', purchase_price_usd: 150, sets: { set_number: '10270' } } as any],
+      total_paid: 150,
+      retirement_status: 'Retired' as const,
+    }]
+    render(<SearchableInventory groupedSets={sets} />)
+    const badge = screen.getByText('RETIRED')
+    expect(badge).toBeInTheDocument()
+    expect(badge).toHaveClass('bg-red-600')
+  })
+
+  test('shows amber RETIRING SOON badge when retirement_status is Retiring Soon', () => {
+    const sets = [{
+      set_id: 'def',
+      set_number: '10297',
+      name: 'Boutique Hotel',
+      theme: 'Modular Buildings',
+      piece_count: 3068,
+      retired: false,
+      override_retired: null,
+      retirement_date: null,
+      retiring_soon_override: null,
+      override_retirement_date: null,
+      image_url: null,
+      retail_price: 229.99,
+      items: [{ id: '2', purchase_price_usd: 200, sets: { set_number: '10297' } } as any],
+      total_paid: 200,
+      retirement_status: 'Retiring Soon' as const,
+    }]
+    render(<SearchableInventory groupedSets={sets} />)
+    const badge = screen.getByText('RETIRING SOON')
+    expect(badge).toBeInTheDocument()
+    expect(badge).toHaveClass('bg-amber-600')
+  })
+
+  test('shows no retirement badge when retirement_status is Active', () => {
+    const sets = [{
+      set_id: 'ghi',
+      set_number: '10255',
+      name: 'Assembly Square',
+      theme: 'Modular Buildings',
+      piece_count: 4002,
+      retired: false,
+      override_retired: null,
+      retirement_date: null,
+      retiring_soon_override: null,
+      override_retirement_date: null,
+      image_url: null,
+      retail_price: 279.99,
+      items: [{ id: '3', purchase_price_usd: 250, sets: { set_number: '10255' } } as any],
+      total_paid: 250,
+      retirement_status: 'Active' as const,
+    }]
+    render(<SearchableInventory groupedSets={sets} />)
+    expect(screen.queryByText('RETIRED')).not.toBeInTheDocument()
+    expect(screen.queryByText('RETIRING SOON')).not.toBeInTheDocument()
+  })
 })

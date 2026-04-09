@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
 import AlertsBell from '@/components/AlertsBell'
-import { getRecommendation } from '@/lib/recommendations'
+import { getRecommendation, getRetirementStatus } from '@/lib/recommendations'
 import type { InventoryItem, GroupedSet } from '@/types/inventory'
 import SearchableInventory from '@/components/SearchableInventory'
 
@@ -100,11 +100,17 @@ export default async function DashboardPage() {
       sell_threshold_pct: userSettings.price_spike_pct,
       demand_drop_pts: userSettings.demand_drop_pts,
     })
+    const retirement_status = getRetirementStatus({
+      retirement_date: group.retirement_date ?? null,
+      override_retired: group.override_retired ?? null,
+      retiring_soon_override: group.retiring_soon_override ?? null,
+    })
     return {
       ...group,
       avg_price_usd: snapshot?.avg_price_usd ?? null,
       recommendation,
       recommendation_reason: reason,
+      retirement_status,
     }
   })
 
