@@ -22,15 +22,16 @@ Both are called when a set is first added. The Brickset call is non-blocking —
 
 Single exported function: `fetchRetirementDate(setNumber: string): Promise<Date | null>`
 
+- Tries `setNumber-1` first, then bare `setNumber` (mirrors Rebrickable's fallback pattern)
 - Calls `https://brickset.com/api/v3.asmx/getSets?apiKey=...&userHash=&params={"setNumber":"XXXXX-1"}`
 - Extracts `sets[0].exitDate`
-- Returns parsed `Date` or `null` if not found / API error
+- Returns parsed `Date` or `null` if not found / API error / empty response
 - Uses `BRICKSET_API_KEY` env var
 - 8-second timeout (same pattern as Rebrickable)
 
 ### 2. `src/app/api/lego-status/route.ts` (update)
 
-After the existing Rebrickable upsert, call `fetchRetirementDate()` and update `retirement_date` in the `sets` row. If Brickset returns null, leave `retirement_date` unchanged. No change to the 24-hour cache logic.
+After the existing Rebrickable upsert, call `fetchRetirementDate()` and issue a second targeted `UPDATE sets SET retirement_date = $1 WHERE set_number = $2` — do not re-run the full upsert to avoid overwriting Rebrickable fields. If Brickset returns null, skip the update and leave `retirement_date` unchanged. The `retired` flag is set by Rebrickable's `is_retired` in this path. No change to the 24-hour cache logic.
 
 ### 3. `src/app/api/admin/sets/refresh/route.ts` (update)
 
@@ -46,6 +47,8 @@ ALTER TABLE sets ADD COLUMN retiring_soon_override BOOLEAN DEFAULT false;
 ```
 
 No other schema changes needed — `retirement_date` and `override_retired` and `override_retirement_date` already exist.
+
+The `retiring_soon_override` field must also be added to the `SetRow` and `GroupedSet` TypeScript types in `src/types/inventory.ts`.
 
 ### 5. `src/lib/recommendations.ts` (update)
 
