@@ -24,7 +24,8 @@ This spec replaces the recommendation labels with retirement-aware ones and adds
 | Active + `demand_score ≥ demand_drop_pts` + price gain ≥ `sell_threshold_pct` | **SELL** | Strong active market — move now |
 | Active + anything else | **HOLD** | No strong sell signal yet |
 | Retiring Soon (effective retirement date within 6 months in the future) | **STRATEGIC HOLD** | Price about to spike — wait |
-| Retired < 6 months ago (effective retirement date within last 180 days) | **STRATEGIC HOLD** | Price still climbing post-retirement |
+| Retired < 6 months ago + `demand_score < demand_drop_pts` | **STRATEGIC HOLD** | Just retired, demand not yet hot — wait for the spike |
+| Retired < 6 months ago + `demand_score ≥ demand_drop_pts` | **VELOCITY SELL** | Recently retired and already in high demand — move now |
 | Retired 6+ months + `demand_score ≥ demand_drop_pts` | **VELOCITY SELL** | Market is hot — move now for max return |
 | Retired 6+ months + `demand_score < demand_drop_pts` | **LIQUIDATE** | Demand stagnated — recover capital before price softens further |
 | No price snapshot or `avg_price_usd` is null | **NO_DATA** | Insufficient data |
@@ -46,9 +47,10 @@ This ensures admin date overrides are respected in the recommendation logic.
 1. No data → `NO_DATA`
 2. Retirement status checked first:
    - Retiring Soon (effective date in future, within 6 months) → `STRATEGIC HOLD`
-   - Retired < 6 months ago (effective date ≤ today, within last 180 days) → `STRATEGIC HOLD`
-   - Retired 6+ months + `demand_score ≥ demand_drop_pts` → `VELOCITY SELL`
-   - Retired 6+ months + `demand_score < demand_drop_pts` → `LIQUIDATE`
+   - Retired < 6 months ago + low demand → `STRATEGIC HOLD`
+   - Retired < 6 months ago + high demand → `VELOCITY SELL`
+   - Retired 6+ months + high demand → `VELOCITY SELL`
+   - Retired 6+ months + low demand → `LIQUIDATE`
 3. Active sets: demand + price gain → `SELL` or `HOLD`
 
 ### Implementation
@@ -102,6 +104,33 @@ Shown beneath the suggested price wherever it appears.
 
 ## Feature 3: Smart Listing Assistant
 
+### Minifigure Data
+
+**DB:** Add a `minifig_count` column to `sets` and a `minifig_names` column for the list:
+
+```sql
+ALTER TABLE sets ADD COLUMN IF NOT EXISTS minifig_count INTEGER;
+ALTER TABLE sets ADD COLUMN IF NOT EXISTS minifig_names TEXT;
+```
+
+`minifig_names` is a comma-separated string of figure names (e.g., `"Bookshop Owner, Customer, Delivery Person"`). Kept simple — no separate table needed.
+
+**Fetch:** Call Rebrickable's minifig endpoint when a set is added (in `src/app/api/lego-status/route.ts`, alongside the existing Rebrickable fetch):
+
+```
+GET https://rebrickable.com/api/v3/lego/sets/{set_num}/minifigs/
+```
+
+Returns a list of `{ set_name, quantity }` objects. Store:
+- `minifig_count`: sum of all `quantity` values
+- `minifig_names`: comma-joined `set_name` values (e.g., `"Velma Dinkley, Fred Jones, Scooby-Doo"`)
+
+If the endpoint fails or returns empty, leave both columns null — non-blocking.
+
+**Types:** Add `minifig_count: number | null` and `minifig_names: string | null` to `InventoryItem.sets` and `GroupedSet` in `src/types/inventory.ts`.
+
+---
+
 ### Database
 
 Add two nullable columns to `inventory_items` (run in Supabase SQL Editor):
@@ -119,7 +148,7 @@ After running the migration, update `src/types/inventory.ts` to add `listing_tit
 
 **`POST /api/inventory/[id]/listing`**
 - Auth required — use the same implicit-ownership-via-query pattern as `src/app/api/sets/[id]/route.ts`: fetch the item with `.eq('id', id).eq('added_by', user.id)` — if no row matches, return 404 (no explicit 403 needed)
-- Fetches item + set data (including `retirement_date`, `override_retirement_date`, `retirement_status`, `avg_price_usd`, `min_price_usd`, `piece_count`, `theme`, `condition`, `name`, `set_number`)
+- Fetches item + set data (including `retirement_date`, `override_retirement_date`, `retirement_status`, `avg_price_usd`, `min_price_usd`, `piece_count`, `theme`, `condition`, `name`, `set_number`, `minifig_count`, `minifig_names`)
 - Calls Gemini 1.5 Flash with the prompt below
 - Parses JSON response, saves `listing_title` + `listing_description` to `inventory_items` via `UPDATE ... WHERE id = $1 AND added_by = $2`
 - This route handles both **generate** and **regenerate** — it overwrites existing values (upsert behavior via a single POST)
@@ -154,6 +183,12 @@ const retirementLine = retirementStatus === 'Retired' && effectiveRetirementDate
   ? `Retirement status: Retired (since ${effectiveRetirementDate})`
   : `Retirement status: ${retirementStatus}`
 
+const minifigLine = minifigNames
+  ? `Minifigures (${minifigCount} total): ${minifigNames}`
+  : minifigCount
+    ? `Minifigures: ${minifigCount} included`
+    : ''
+
 const prompt = `
 You're helping sell a LEGO set on Facebook Marketplace. Write friendly, attention-grabbing copy.
 
@@ -162,6 +197,7 @@ Theme: ${theme}
 Pieces: ${pieceCount}
 Condition: ${condition}
 ${retirementLine}
+${minifigLine}
 ${ebayPriceLine}
 
 Rules:
@@ -170,6 +206,7 @@ Rules:
 - If retired/rare: mention it's no longer in stores
 - If eBay price is provided: note that our price is lower than eBay
 - Always mention piece count
+- If any minifigures are known to be particularly collectible, sought-after, or have recently spiked in popularity (e.g. exclusive figures, pop culture tie-ins), name them in the description — only if you are confident, do not speculate
 - Do not invent facts
 - Return valid JSON only: { "title": "...", "description": "..." }
 `.trim()
@@ -237,6 +274,8 @@ Set detail page renders
 | `src/components/SearchableInventory.tsx` | New badge colors for new labels |
 | `src/app/api/inventory/[id]/listing/route.ts` | **Create** — Gemini integration |
 | `src/lib/gemini.ts` | **Create** — Gemini client + `generateListing()` function |
+| `src/lib/rebrickable.ts` | Add `fetchMinifigs(setNumber)` function |
+| `src/app/api/lego-status/route.ts` | Call `fetchMinifigs()` after Rebrickable upsert, save `minifig_count` + `minifig_names` |
 
 ---
 
