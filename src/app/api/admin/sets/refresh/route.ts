@@ -1,56 +1,56 @@
 import { NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { isAdmin } from '@/lib/roles'
-import { fetchSetFromRebrickable } from '@/lib/rebrickable'
+import { fetchRetirementDate } from '@/lib/brickset'
 
 /**
  * POST /api/admin/sets/refresh
- * Re-fetches all sets in the database from Rebrickable to backfill
- * retirement status and other stale fields.
+ * Refreshes retirement data for all sets from Brickset.
+ * Skips sets already marked retired or override_retired.
  * Admin only. Processes sets sequentially to avoid hammering the API.
  */
 export async function POST() {
   if (!await isAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const serviceSupabase = createServiceClient(
+  const supabase = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const { data: sets, error } = await serviceSupabase
+  const { data: sets, error } = await supabase
     .from('sets')
-    .select('set_number')
+    .select('set_number, retired, override_retired')
     .order('set_number')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!sets || sets.length === 0) return NextResponse.json({ refreshed: 0, failed: 0 })
+  if (!sets || sets.length === 0) return NextResponse.json({ total: 0, skipped_retired: 0, refreshed: 0, failed: [] })
 
+  const total = sets.length
+  let skipped_retired = 0
   let refreshed = 0
   const failed: string[] = []
 
-  for (const { set_number } of sets) {
-    const setData = await fetchSetFromRebrickable(set_number)
-    if (!setData) {
-      failed.push(set_number)
+  for (const set of sets) {
+    if (set.retired || set.override_retired) {
+      skipped_retired++
       continue
     }
 
-    const { error: upsertError } = await serviceSupabase
-      .from('sets')
-      .update({ ...setData, last_fetched_at: new Date().toISOString() })
-      .eq('set_number', set_number)
-
-    if (upsertError) {
-      failed.push(set_number)
-    } else {
-      refreshed++
+    const retirementDate = await fetchRetirementDate(set.set_number)
+    if (retirementDate !== null) {
+      const dateStr = retirementDate.toISOString().slice(0, 10)
+      const isRetired = retirementDate <= new Date()
+      const { error } = await supabase
+        .from('sets')
+        .update({ retirement_date: dateStr, retired: isRetired })
+        .eq('set_number', set.set_number)
+      if (error) {
+        failed.push(set.set_number)
+      } else {
+        refreshed++
+      }
     }
   }
 
-  return NextResponse.json({
-    total: sets.length,
-    refreshed,
-    failed: failed.length,
-    failed_sets: failed,
-  })
+  return NextResponse.json({ total, skipped_retired, refreshed, failed })
 }
