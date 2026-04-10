@@ -19,7 +19,7 @@ beforeEach(() => {
     getGenerativeModel: jest.fn().mockReturnValue({
       generateContent: jest.fn(),
     }),
-  }))
+  }) as unknown as GoogleGenerativeAI)
 })
 
 const baseInput = {
@@ -44,7 +44,7 @@ test('returns listing_title and listing_description on success', async () => {
         response: { text: () => JSON.stringify(mockResult) },
       }),
     }),
-  }))
+  }) as unknown as GoogleGenerativeAI)
 
   const result = await generateListing(baseInput)
   expect(result).toEqual(mockResult)
@@ -62,7 +62,7 @@ test('throws when Gemini returns invalid JSON', async () => {
         response: { text: () => 'not json' },
       }),
     }),
-  }))
+  }) as unknown as GoogleGenerativeAI)
 
   await expect(generateListing(baseInput)).rejects.toThrow('Failed to parse listing from Gemini')
 })
@@ -74,7 +74,7 @@ test('includes eBay price in prompt for VELOCITY SELL recommendation', async () 
         response: { text: () => JSON.stringify({ listing_title: 'T', listing_description: 'D' }) },
       }),
     }),
-  }))
+  }) as unknown as GoogleGenerativeAI)
 
   await generateListing({ ...baseInput, recommendation: 'VELOCITY SELL' })
   const model = MockGoogleGenerativeAI.mock.results[0]?.value.getGenerativeModel.mock.results[0]?.value
@@ -89,7 +89,7 @@ test('omits eBay price for HOLD recommendation', async () => {
         response: { text: () => JSON.stringify({ listing_title: 'T', listing_description: 'D' }) },
       }),
     }),
-  }))
+  }) as unknown as GoogleGenerativeAI)
 
   await generateListing({ ...baseInput, recommendation: 'HOLD', avgPrice: null })
   const model = MockGoogleGenerativeAI.mock.results[0]?.value.getGenerativeModel.mock.results[0]?.value

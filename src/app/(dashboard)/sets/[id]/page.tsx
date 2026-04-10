@@ -216,8 +216,12 @@ export default function SetDetailPage() {
 
   async function generateItemListing(itemId: string) {
     setListingLoading(s => ({ ...s, [itemId]: true }))
-    await fetch(`/api/inventory/${itemId}/listing`, { method: 'POST' })
+    const res = await fetch(`/api/inventory/${itemId}/listing`, { method: 'POST' })
     setListingLoading(s => ({ ...s, [itemId]: false }))
+    if (!res.ok) {
+      alert('Failed to generate listing. Please try again.')
+      return
+    }
     loadData()
   }
 

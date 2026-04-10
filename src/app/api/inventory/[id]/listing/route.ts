@@ -56,11 +56,15 @@ export async function POST(
       minifigNames: s.minifig_names,
     })
 
-    await supabase
+    const { error: saveError } = await supabase
       .from('inventory_items')
       .update({ listing_title: listing.listing_title, listing_description: listing.listing_description })
       .eq('id', id)
       .eq('added_by', user.id)
+
+    if (saveError) {
+      return NextResponse.json({ error: 'Failed to save listing' }, { status: 500 })
+    }
 
     return NextResponse.json(listing)
   } catch (err) {
