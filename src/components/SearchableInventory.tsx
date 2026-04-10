@@ -5,10 +5,12 @@ import Image from 'next/image'
 import Link from 'next/link'
 import type { GroupedSet } from '@/types/inventory'
 
-const PILL_STYLES = {
+const PILL_STYLES: Record<string, string> = {
   SELL: 'bg-green-900/60 text-green-400',
   HOLD: 'bg-yellow-900/50 text-yellow-400',
-  WATCH: 'bg-orange-900/50 text-orange-400',
+  'VELOCITY SELL': 'bg-green-600 text-white',
+  'STRATEGIC HOLD': 'bg-purple-900/50 text-purple-400',
+  LIQUIDATE: 'bg-orange-900/50 text-orange-400',
   NO_DATA: 'bg-gray-700 text-gray-400',
 }
 
@@ -127,7 +129,7 @@ export default function SearchableInventory({ groupedSets }: Props) {
                       </span>
                     )}
                     <span
-                      className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES[group.recommendation ?? 'NO_DATA']}`}
+                      className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES[group.recommendation ?? 'NO_DATA'] ?? PILL_STYLES['NO_DATA']}`}
                       title={group.recommendation_reason}
                     >
                       {group.recommendation ?? 'NO_DATA'}
