@@ -41,6 +41,7 @@ interface SetGroup {
   retiring_soon_override: boolean | null
   retirement_date: string | null
   override_retirement_date: string | null
+  minifig_count: number | null
   image_url: string | null
   items: InventoryItem[]
 }
@@ -90,6 +91,7 @@ export default function SetDetailPage() {
       retiring_soon_override: s.retiring_soon_override ?? null,
       retirement_date: s.retirement_date ?? null,
       override_retirement_date: s.override_retirement_date ?? null,
+      minifig_count: s.minifig_count ?? null,
       image_url: s.image_url,
       items: filtered.map((i: { id: string; purchased_from: string | null; purchase_price_usd: number | null; purchase_date: string | null; condition: string; notes: string | null; sold: boolean; sold_price_usd: number | null; sold_date: string | null; sold_via: string | null }) => ({
         id: i.id,
@@ -242,6 +244,9 @@ export default function SetDetailPage() {
             <p className="text-gray-400 text-sm">#{group.set_number} · {group.theme}</p>
             <div className="flex gap-4 mt-2 text-sm text-gray-400">
               {group.piece_count && <span>{group.piece_count.toLocaleString()} pcs</span>}
+              {group.minifig_count != null && group.minifig_count > 0 && (
+                <span>{group.minifig_count} minifig{group.minifig_count !== 1 ? 's' : ''}</span>
+              )}
               {retailPrice && <span>Retail: ${retailPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>}
             </div>
           </div>
