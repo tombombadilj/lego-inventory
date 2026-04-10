@@ -10,6 +10,8 @@ export interface InventoryItem {
   sold_date: string | null
   sold_via: string | null
   created_at: string
+  listing_title: string | null
+  listing_description: string | null
   sets: {
     id: string
     set_number: string
@@ -24,6 +26,8 @@ export interface InventoryItem {
     retirement_date: string | null
     retiring_soon_override: boolean | null
     override_retirement_date: string | null
+    minifig_count: number | null
+    minifig_names: string | null
   }
 }
 
@@ -38,13 +42,15 @@ export interface GroupedSet {
   retirement_date: string | null
   retiring_soon_override: boolean | null
   override_retirement_date: string | null
+  minifig_count: number | null
+  minifig_names: string | null
   image_url: string | null
   retail_price: number | null
   items: InventoryItem[]
   total_paid: number
   // Pre-computed server-side from latest price snapshot
   avg_price_usd?: number | null
-  recommendation?: 'SELL' | 'HOLD' | 'WATCH' | 'NO_DATA'
+  recommendation?: 'SELL' | 'HOLD' | 'STRATEGIC HOLD' | 'VELOCITY SELL' | 'LIQUIDATE' | 'NO_DATA'
   recommendation_reason?: string
   retirement_status?: 'Retired' | 'Retiring Soon' | 'Active'
 }
