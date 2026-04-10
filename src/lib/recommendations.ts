@@ -17,7 +17,6 @@ export interface PriceSnapshot {
 
 export interface InventoryContext {
   purchase_price_usd: number | null
-  retired: boolean
   sell_threshold_pct: number
   demand_drop_pts: number
   retirement_status: RetirementStatus

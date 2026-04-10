@@ -350,7 +350,6 @@ export default function SetDetailPage() {
               : null
             const { recommendation, reason } = getRecommendation(snapshot, {
               purchase_price_usd: avgPurchase,
-              retired: group?.retired ?? false,
               sell_threshold_pct: userSettings.price_spike_pct,
               demand_drop_pts: userSettings.demand_drop_pts,
               retirement_status: group ? getRetirementStatus({

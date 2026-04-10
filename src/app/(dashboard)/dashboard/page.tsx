@@ -103,7 +103,6 @@ export default async function DashboardPage() {
     })
     const { recommendation, reason } = getRecommendation(snapshot, {
       purchase_price_usd: avgPurchasePrice,
-      retired: group.retired,
       sell_threshold_pct: userSettings.price_spike_pct,
       demand_drop_pts: userSettings.demand_drop_pts,
       retirement_status,
