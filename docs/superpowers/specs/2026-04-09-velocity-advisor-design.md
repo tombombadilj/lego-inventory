@@ -129,6 +129,8 @@ If the endpoint fails or returns empty, leave both columns null — non-blocking
 
 **Types:** Add `minifig_count: number | null` and `minifig_names: string | null` to `InventoryItem.sets` and `GroupedSet` in `src/types/inventory.ts`.
 
+**UI:** Show minifig count on the set detail page (`src/app/(dashboard)/sets/[id]/page.tsx`) in the set header alongside piece count — e.g., `"2,504 pcs · 5 minifigs"`. Only shown when `minifig_count` is non-null and greater than zero. The individual names are not displayed in the UI (used only in the Gemini prompt).
+
 ---
 
 ### Database
