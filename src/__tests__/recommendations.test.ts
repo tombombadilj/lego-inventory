@@ -1,4 +1,126 @@
-import { getRetirementStatus } from '../lib/recommendations'
+import { getRecommendation, getRetirementStatus } from '../lib/recommendations'
+
+function makeSnapshot(overrides: Partial<{
+  avg_price_usd: number | null
+  min_price_usd: number | null
+  max_price_usd: number | null
+  demand_score: number
+  listings_count: number
+}> = {}) {
+  return {
+    avg_price_usd: 200,
+    min_price_usd: 180,
+    max_price_usd: 220,
+    demand_score: 50,
+    listings_count: 20,
+    ...overrides,
+  }
+}
+
+function makeCtx(overrides: Partial<{
+  purchase_price_usd: number | null
+  sell_threshold_pct: number
+  demand_drop_pts: number
+  retirement_status: 'Retired' | 'Retiring Soon' | 'Active'
+  retirement_date: string | null
+  override_retirement_date: string | null
+}> = {}) {
+  return {
+    purchase_price_usd: 100,
+    sell_threshold_pct: 10,
+    demand_drop_pts: 20,
+    retirement_status: 'Active' as const,
+    retirement_date: null,
+    override_retirement_date: null,
+    ...overrides,
+  }
+}
+
+describe('getRecommendation', () => {
+  test('returns NO_DATA when snapshot is null', () => {
+    expect(getRecommendation(null, makeCtx()).recommendation).toBe('NO_DATA')
+  })
+
+  test('returns NO_DATA when avg_price_usd is null', () => {
+    expect(getRecommendation(makeSnapshot({ avg_price_usd: null }), makeCtx()).recommendation).toBe('NO_DATA')
+  })
+
+  test('returns STRATEGIC HOLD for Retiring Soon', () => {
+    expect(getRecommendation(makeSnapshot(), makeCtx({ retirement_status: 'Retiring Soon' })).recommendation).toBe('STRATEGIC HOLD')
+  })
+
+  test('returns VELOCITY SELL for Retired with high demand (6+ months ago)', () => {
+    const date = new Date()
+    date.setDate(date.getDate() - 200) // well past 180 days
+    expect(getRecommendation(
+      makeSnapshot({ demand_score: 60, listings_count: 10 }),
+      makeCtx({ retirement_status: 'Retired', retirement_date: date.toISOString().slice(0, 10) })
+    ).recommendation).toBe('VELOCITY SELL')
+  })
+
+  test('returns VELOCITY SELL for recently Retired with high demand', () => {
+    const date = new Date()
+    date.setDate(date.getDate() - 30) // 30 days ago — within 180 days
+    expect(getRecommendation(
+      makeSnapshot({ demand_score: 60, listings_count: 10 }),
+      makeCtx({ retirement_status: 'Retired', retirement_date: date.toISOString().slice(0, 10) })
+    ).recommendation).toBe('VELOCITY SELL')
+  })
+
+  test('returns STRATEGIC HOLD for recently Retired with low demand', () => {
+    const date = new Date()
+    date.setDate(date.getDate() - 30) // 30 days ago — within 180 days
+    expect(getRecommendation(
+      makeSnapshot({ demand_score: 10, listings_count: 3 }),
+      makeCtx({ retirement_status: 'Retired', retirement_date: date.toISOString().slice(0, 10) })
+    ).recommendation).toBe('STRATEGIC HOLD')
+  })
+
+  test('returns LIQUIDATE for Retired 6+ months with low demand', () => {
+    const date = new Date()
+    date.setDate(date.getDate() - 200) // well past 180 days
+    expect(getRecommendation(
+      makeSnapshot({ demand_score: 10, listings_count: 3 }),
+      makeCtx({ retirement_status: 'Retired', retirement_date: date.toISOString().slice(0, 10) })
+    ).recommendation).toBe('LIQUIDATE')
+  })
+
+  test('uses override_retirement_date when present for age calculation', () => {
+    const overrideDate = new Date()
+    overrideDate.setDate(overrideDate.getDate() - 200) // force old age
+    const recentDate = new Date()
+    recentDate.setDate(recentDate.getDate() - 30) // raw date is recent
+    expect(getRecommendation(
+      makeSnapshot({ demand_score: 10, listings_count: 3 }),
+      makeCtx({
+        retirement_status: 'Retired',
+        retirement_date: recentDate.toISOString().slice(0, 10),
+        override_retirement_date: overrideDate.toISOString().slice(0, 10),
+      })
+    ).recommendation).toBe('LIQUIDATE') // override makes it old → LIQUIDATE
+  })
+
+  test('returns SELL for Active + high demand + above threshold', () => {
+    expect(getRecommendation(
+      makeSnapshot({ demand_score: 60, listings_count: 10, avg_price_usd: 200 }),
+      makeCtx({ purchase_price_usd: 100, sell_threshold_pct: 10, demand_drop_pts: 20 })
+    ).recommendation).toBe('SELL')
+  })
+
+  test('returns HOLD for Active + high demand but below threshold', () => {
+    expect(getRecommendation(
+      makeSnapshot({ demand_score: 60, listings_count: 10, avg_price_usd: 105 }),
+      makeCtx({ purchase_price_usd: 100, sell_threshold_pct: 20, demand_drop_pts: 20 })
+    ).recommendation).toBe('HOLD')
+  })
+
+  test('returns HOLD for Active + low demand regardless of price', () => {
+    expect(getRecommendation(
+      makeSnapshot({ demand_score: 5, listings_count: 2, avg_price_usd: 500 }),
+      makeCtx({ purchase_price_usd: 100, sell_threshold_pct: 10 })
+    ).recommendation).toBe('HOLD')
+  })
+})
 
 function makeSet(overrides: {
   retirement_date?: string | null

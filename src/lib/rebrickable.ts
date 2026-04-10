@@ -62,3 +62,30 @@ export async function fetchSetFromRebrickable(setNumber: string): Promise<SetDat
 
   return parseSetData(raw, theme)
 }
+
+export interface MinifigData {
+  minifig_count: number
+  minifig_names: string
+}
+
+export async function fetchMinifigs(setNumber: string): Promise<MinifigData | null> {
+  const suffixes = [`${setNumber}-1`, setNumber]
+  for (const s of suffixes) {
+    try {
+      const res = await fetchWithTimeout(
+        `https://rebrickable.com/api/v3/lego/sets/${s}/minifigs/`,
+        { headers: { Authorization: `key ${process.env.REBRICKABLE_API_KEY}` } }
+      )
+      if (!res.ok) continue
+      const data = await res.json()
+      const results: Array<{ set_name: string; quantity: number }> = data.results ?? []
+      if (results.length === 0) continue
+      const minifig_count = results.reduce((sum, r) => sum + (r.quantity ?? 1), 0)
+      const minifig_names = results.map(r => r.set_name).join(', ')
+      return { minifig_count, minifig_names }
+    } catch {
+      // timeout or network error — try next suffix
+    }
+  }
+  return null
+}

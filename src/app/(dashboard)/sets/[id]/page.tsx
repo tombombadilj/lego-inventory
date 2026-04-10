@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { getRecommendation } from '@/lib/recommendations'
+import { getRecommendation, getRetirementStatus } from '@/lib/recommendations'
 import { createClient } from '@/lib/supabase/client'
 
 interface InventoryItem {
@@ -17,6 +17,8 @@ interface InventoryItem {
   sold_price_usd: number | null
   sold_date: string | null
   sold_via: string | null
+  listing_title: string | null
+  listing_description: string | null
 }
 
 interface PriceSnapshot {
@@ -39,7 +41,9 @@ interface SetGroup {
   retired: boolean
   override_retired: boolean | null
   retiring_soon_override: boolean | null
+  retirement_date: string | null
   override_retirement_date: string | null
+  minifig_count: number | null
   image_url: string | null
   items: InventoryItem[]
 }
@@ -49,7 +53,9 @@ type Modal = { type: 'edit' | 'sell'; item: InventoryItem } | null
 const PILL_STYLES = {
   SELL: 'bg-green-900/60 text-green-400 border-green-700',
   HOLD: 'bg-yellow-900/50 text-yellow-400 border-yellow-700',
-  WATCH: 'bg-orange-900/50 text-orange-400 border-orange-700',
+  'STRATEGIC HOLD': 'bg-blue-900/50 text-blue-400 border-blue-700',
+  'VELOCITY SELL': 'bg-orange-900/50 text-orange-400 border-orange-700',
+  LIQUIDATE: 'bg-red-900/60 text-red-400 border-red-700',
   NO_DATA: 'bg-gray-700 text-gray-400 border-gray-600',
 }
 
@@ -68,6 +74,7 @@ export default function SetDetailPage() {
   const [userSettings, setUserSettings] = useState({ price_spike_pct: 10, demand_drop_pts: 20 })
   const [isAdmin, setIsAdmin] = useState(false)
   const [overrideDateInput, setOverrideDateInput] = useState<string>('')
+  const [listingLoading, setListingLoading] = useState<Record<string, boolean>>({})
 
   async function loadData() {
     const res = await fetch('/api/sets?all=true')
@@ -85,9 +92,11 @@ export default function SetDetailPage() {
       retired: s.override_retired ?? s.retired,
       override_retired: s.override_retired,
       retiring_soon_override: s.retiring_soon_override ?? null,
+      retirement_date: s.retirement_date ?? null,
       override_retirement_date: s.override_retirement_date ?? null,
+      minifig_count: s.minifig_count ?? null,
       image_url: s.image_url,
-      items: filtered.map((i: { id: string; purchased_from: string | null; purchase_price_usd: number | null; purchase_date: string | null; condition: string; notes: string | null; sold: boolean; sold_price_usd: number | null; sold_date: string | null; sold_via: string | null }) => ({
+      items: filtered.map((i: { id: string; purchased_from: string | null; purchase_price_usd: number | null; purchase_date: string | null; condition: string; notes: string | null; sold: boolean; sold_price_usd: number | null; sold_date: string | null; sold_via: string | null; listing_title?: string | null; listing_description?: string | null }) => ({
         id: i.id,
         purchased_from: i.purchased_from,
         purchase_price_usd: i.purchase_price_usd,
@@ -98,6 +107,8 @@ export default function SetDetailPage() {
         sold_price_usd: i.sold_price_usd,
         sold_date: i.sold_date,
         sold_via: i.sold_via,
+        listing_title: i.listing_title ?? null,
+        listing_description: i.listing_description ?? null,
       })),
     })
     setLoading(false)
@@ -203,6 +214,17 @@ export default function SetDetailPage() {
     loadData()
   }
 
+  async function generateItemListing(itemId: string) {
+    setListingLoading(s => ({ ...s, [itemId]: true }))
+    const res = await fetch(`/api/inventory/${itemId}/listing`, { method: 'POST' })
+    setListingLoading(s => ({ ...s, [itemId]: false }))
+    if (!res.ok) {
+      alert('Failed to generate listing. Please try again.')
+      return
+    }
+    loadData()
+  }
+
   if (loading) return (
     <div className="min-h-screen bg-[#1A1A1A] flex items-center justify-center">
       <p className="text-gray-400 animate-pulse">Loading…</p>
@@ -238,6 +260,9 @@ export default function SetDetailPage() {
             <p className="text-gray-400 text-sm">#{group.set_number} · {group.theme}</p>
             <div className="flex gap-4 mt-2 text-sm text-gray-400">
               {group.piece_count && <span>{group.piece_count.toLocaleString()} pcs</span>}
+              {group.minifig_count != null && group.minifig_count > 0 && (
+                <span>{group.minifig_count} minifig{group.minifig_count !== 1 ? 's' : ''}</span>
+              )}
               {retailPrice && <span>Retail: ${retailPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>}
             </div>
           </div>
@@ -346,9 +371,15 @@ export default function SetDetailPage() {
               : null
             const { recommendation, reason } = getRecommendation(snapshot, {
               purchase_price_usd: avgPurchase,
-              retired: group?.retired ?? false,
               sell_threshold_pct: userSettings.price_spike_pct,
               demand_drop_pts: userSettings.demand_drop_pts,
+              retirement_status: group ? getRetirementStatus({
+                retirement_date: group.retirement_date,
+                override_retired: group.override_retired,
+                retiring_soon_override: group.retiring_soon_override ?? null,
+              }) : 'Active',
+              retirement_date: group?.retirement_date ?? null,
+              override_retirement_date: group?.override_retirement_date ?? null,
             })
 
             return snapshot?.avg_price_usd != null ? (
@@ -394,7 +425,7 @@ export default function SetDetailPage() {
                 </p>
 
                 {/* Recommendation */}
-                <div className={`flex items-start gap-2 p-3 rounded-lg border ${PILL_STYLES[recommendation]}`}>
+                <div className={`flex items-start gap-2 p-3 rounded-lg border ${PILL_STYLES[recommendation as keyof typeof PILL_STYLES] ?? PILL_STYLES.NO_DATA}`}>
                   <span className="font-bold text-sm flex-shrink-0">{recommendation}</span>
                   <span className="text-xs opacity-90">{reason}</span>
                 </div>
@@ -440,6 +471,83 @@ export default function SetDetailPage() {
                   className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 transition-colors ml-auto">
                   Remove
                 </button>
+              </div>
+
+              {/* Listing Package */}
+              <div className="mt-3 pt-3 border-t border-gray-700">
+                {item.listing_title ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Listing Package</p>
+
+                    {/* Title */}
+                    <div>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <p className="text-xs text-gray-500">Title</p>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(item.listing_title!)}
+                          className="text-xs text-gray-400 hover:text-white transition-colors"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <p className="text-sm text-white bg-gray-800 rounded px-2 py-1">{item.listing_title}</p>
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <p className="text-xs text-gray-500">Description</p>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(item.listing_description!)}
+                          className="text-xs text-gray-400 hover:text-white transition-colors"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <p className="text-sm text-white bg-gray-800 rounded px-2 py-1 whitespace-pre-wrap">{item.listing_description}</p>
+                    </div>
+
+                    {/* Suggested price — primary: min_price_usd × 0.95; fallback: avg_price_usd × 0.95 */}
+                    {(() => {
+                      const basePrice = snapshot?.min_price_usd ?? snapshot?.avg_price_usd ?? null
+                      if (basePrice == null) return null
+                      const suggestedPrice = basePrice * 0.95
+                      const priceLabel = snapshot?.min_price_usd != null
+                        ? `5% below eBay floor of $${snapshot.min_price_usd.toFixed(2)}`
+                        : `5% below eBay avg of $${snapshot!.avg_price_usd!.toFixed(2)}`
+                      return (
+                        <div className="bg-gray-800 rounded px-2 py-1.5">
+                          <p className="text-xs text-gray-400">
+                            Suggested list price:{' '}
+                            <span className="text-white font-semibold">
+                              ${suggestedPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-gray-500"> ({priceLabel})</span>
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Heads up: eBay charges ~13% in fees (approximate, verify current rates). FB Marketplace is free for local pickup, 5% for shipped orders. Make sure your asking price accounts for this.
+                          </p>
+                        </div>
+                      )
+                    })()}
+
+                    <button
+                      onClick={() => generateItemListing(item.id)}
+                      disabled={listingLoading[item.id]}
+                      className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50"
+                    >
+                      {listingLoading[item.id] ? 'Regenerating…' : 'Regenerate'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => generateItemListing(item.id)}
+                    disabled={listingLoading[item.id]}
+                    className="w-full text-xs border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {listingLoading[item.id] ? 'Generating listing…' : '✨ Generate Listing'}
+                  </button>
+                )}
               </div>
             </div>
           ))}

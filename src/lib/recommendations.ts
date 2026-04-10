@@ -1,4 +1,4 @@
-export type Recommendation = 'SELL' | 'HOLD' | 'WATCH' | 'NO_DATA'
+export type Recommendation = 'SELL' | 'HOLD' | 'STRATEGIC HOLD' | 'VELOCITY SELL' | 'LIQUIDATE' | 'NO_DATA'
 
 export type RetirementStatus = 'Retired' | 'Retiring Soon' | 'Active'
 
@@ -17,9 +17,11 @@ export interface PriceSnapshot {
 
 export interface InventoryContext {
   purchase_price_usd: number | null
-  retired: boolean
-  sell_threshold_pct: number  // user's price_spike_pct from user_settings
-  demand_drop_pts: number     // user's demand_drop_pts from user_settings
+  sell_threshold_pct: number
+  demand_drop_pts: number
+  retirement_status: RetirementStatus
+  retirement_date: string | null
+  override_retirement_date: string | null
 }
 
 /**
@@ -35,21 +37,49 @@ export function getRecommendation(
   }
 
   const { avg_price_usd, demand_score, listings_count } = snapshot
-  const { purchase_price_usd, retired, sell_threshold_pct, demand_drop_pts } = ctx
+  const { purchase_price_usd, sell_threshold_pct, demand_drop_pts, retirement_status, retirement_date, override_retirement_date } = ctx
 
-  const lowDemand = demand_score < demand_drop_pts || listings_count < 5
+  const highDemand = demand_score >= demand_drop_pts && listings_count >= 5
+  const effectiveRetirementDate = override_retirement_date ?? retirement_date
 
-  // WATCH: demand is too low to sell effectively regardless of price
-  // Check this first — no point recommending SELL if buyers aren't there
-  if (lowDemand) {
+  if (retirement_status === 'Retiring Soon') {
     return {
-      recommendation: 'WATCH',
-      reason: `Demand is low (score ${demand_score}/100, ${listings_count} active listings). Price may be up but few buyers — wait for demand to recover before selling.`,
+      recommendation: 'STRATEGIC HOLD',
+      reason: 'Set is retiring soon — prices typically spike after retirement. Hold for better returns.',
     }
   }
 
-  // SELL: price is above threshold AND demand is healthy enough to find a buyer
-  if (purchase_price_usd && purchase_price_usd > 0) {
+  if (retirement_status === 'Retired') {
+    const avgStr = avg_price_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+    if (highDemand) {
+      return {
+        recommendation: 'VELOCITY SELL',
+        reason: `Retired set at ${avgStr} avg with high demand (score ${demand_score}/100). Market is hot — move now for maximum return.`,
+      }
+    }
+
+    // Low demand: check age to decide STRATEGIC HOLD vs LIQUIDATE
+    const sixMonthsAgo = new Date()
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+    const sixMonthsAgoStr = sixMonthsAgo.toISOString().slice(0, 10)
+    const isRecentlyRetired = effectiveRetirementDate !== null && effectiveRetirementDate >= sixMonthsAgoStr
+
+    if (isRecentlyRetired) {
+      return {
+        recommendation: 'STRATEGIC HOLD',
+        reason: "Set retired recently — demand hasn't peaked yet. Hold and monitor for price appreciation.",
+      }
+    }
+
+    return {
+      recommendation: 'LIQUIDATE',
+      reason: `Retired 6+ months with low demand (score ${demand_score}/100). Price may be softening — consider recovering capital now.`,
+    }
+  }
+
+  // Active set
+  if (highDemand && purchase_price_usd && purchase_price_usd > 0) {
     const gainPct = ((avg_price_usd - purchase_price_usd) / purchase_price_usd) * 100
     if (gainPct >= sell_threshold_pct) {
       const gainStr = gainPct.toFixed(0)
@@ -62,19 +92,10 @@ export function getRecommendation(
     }
   }
 
-  // HOLD: retired set with healthy demand — price likely still climbing
-  if (retired) {
-    const avgStr = avg_price_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-    return {
-      recommendation: 'HOLD',
-      reason: `Retired set at ${avgStr} avg resale with healthy demand. Prices typically rise over time.`,
-    }
-  }
-
-  // Default: hold, no strong signal either way
+  const avgStr = avg_price_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
   return {
     recommendation: 'HOLD',
-    reason: `Resale market looks stable at $${avg_price_usd.toFixed(2)} avg. No strong sell signal yet.`,
+    reason: `Resale market at ${avgStr} avg. No strong sell signal yet.`,
   }
 }
 
