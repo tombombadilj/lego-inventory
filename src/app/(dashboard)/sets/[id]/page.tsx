@@ -17,6 +17,8 @@ interface InventoryItem {
   sold_price_usd: number | null
   sold_date: string | null
   sold_via: string | null
+  listing_title: string | null
+  listing_description: string | null
 }
 
 interface PriceSnapshot {
@@ -72,6 +74,7 @@ export default function SetDetailPage() {
   const [userSettings, setUserSettings] = useState({ price_spike_pct: 10, demand_drop_pts: 20 })
   const [isAdmin, setIsAdmin] = useState(false)
   const [overrideDateInput, setOverrideDateInput] = useState<string>('')
+  const [listingLoading, setListingLoading] = useState<Record<string, boolean>>({})
 
   async function loadData() {
     const res = await fetch('/api/sets?all=true')
@@ -93,7 +96,7 @@ export default function SetDetailPage() {
       override_retirement_date: s.override_retirement_date ?? null,
       minifig_count: s.minifig_count ?? null,
       image_url: s.image_url,
-      items: filtered.map((i: { id: string; purchased_from: string | null; purchase_price_usd: number | null; purchase_date: string | null; condition: string; notes: string | null; sold: boolean; sold_price_usd: number | null; sold_date: string | null; sold_via: string | null }) => ({
+      items: filtered.map((i: { id: string; purchased_from: string | null; purchase_price_usd: number | null; purchase_date: string | null; condition: string; notes: string | null; sold: boolean; sold_price_usd: number | null; sold_date: string | null; sold_via: string | null; listing_title?: string | null; listing_description?: string | null }) => ({
         id: i.id,
         purchased_from: i.purchased_from,
         purchase_price_usd: i.purchase_price_usd,
@@ -104,6 +107,8 @@ export default function SetDetailPage() {
         sold_price_usd: i.sold_price_usd,
         sold_date: i.sold_date,
         sold_via: i.sold_via,
+        listing_title: i.listing_title ?? null,
+        listing_description: i.listing_description ?? null,
       })),
     })
     setLoading(false)
@@ -206,6 +211,13 @@ export default function SetDetailPage() {
   async function deleteItem(id: string) {
     if (!confirm('Remove this copy from your inventory?')) return
     await fetch(`/api/sets/${id}`, { method: 'DELETE' })
+    loadData()
+  }
+
+  async function generateItemListing(itemId: string) {
+    setListingLoading(s => ({ ...s, [itemId]: true }))
+    await fetch(`/api/inventory/${itemId}/listing`, { method: 'POST' })
+    setListingLoading(s => ({ ...s, [itemId]: false }))
     loadData()
   }
 
@@ -455,6 +467,83 @@ export default function SetDetailPage() {
                   className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 transition-colors ml-auto">
                   Remove
                 </button>
+              </div>
+
+              {/* Listing Package */}
+              <div className="mt-3 pt-3 border-t border-gray-700">
+                {item.listing_title ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Listing Package</p>
+
+                    {/* Title */}
+                    <div>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <p className="text-xs text-gray-500">Title</p>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(item.listing_title!)}
+                          className="text-xs text-gray-400 hover:text-white transition-colors"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <p className="text-sm text-white bg-gray-800 rounded px-2 py-1">{item.listing_title}</p>
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <p className="text-xs text-gray-500">Description</p>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(item.listing_description!)}
+                          className="text-xs text-gray-400 hover:text-white transition-colors"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <p className="text-sm text-white bg-gray-800 rounded px-2 py-1 whitespace-pre-wrap">{item.listing_description}</p>
+                    </div>
+
+                    {/* Suggested price — primary: min_price_usd × 0.95; fallback: avg_price_usd × 0.95 */}
+                    {(() => {
+                      const basePrice = snapshot?.min_price_usd ?? snapshot?.avg_price_usd ?? null
+                      if (basePrice == null) return null
+                      const suggestedPrice = basePrice * 0.95
+                      const priceLabel = snapshot?.min_price_usd != null
+                        ? `5% below eBay floor of $${snapshot.min_price_usd.toFixed(2)}`
+                        : `5% below eBay avg of $${snapshot!.avg_price_usd!.toFixed(2)}`
+                      return (
+                        <div className="bg-gray-800 rounded px-2 py-1.5">
+                          <p className="text-xs text-gray-400">
+                            Suggested list price:{' '}
+                            <span className="text-white font-semibold">
+                              ${suggestedPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-gray-500"> ({priceLabel})</span>
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Heads up: eBay charges ~13% in fees (approximate, verify current rates). FB Marketplace is free for local pickup, 5% for shipped orders. Make sure your asking price accounts for this.
+                          </p>
+                        </div>
+                      )
+                    })()}
+
+                    <button
+                      onClick={() => generateItemListing(item.id)}
+                      disabled={listingLoading[item.id]}
+                      className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50"
+                    >
+                      {listingLoading[item.id] ? 'Regenerating…' : 'Regenerate'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => generateItemListing(item.id)}
+                    disabled={listingLoading[item.id]}
+                    className="w-full text-xs border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {listingLoading[item.id] ? 'Generating listing…' : '✨ Generate Listing'}
+                  </button>
+                )}
               </div>
             </div>
           ))}
