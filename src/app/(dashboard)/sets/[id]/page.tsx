@@ -507,14 +507,12 @@ export default function SetDetailPage() {
                       <p className="text-sm text-white bg-gray-800 rounded px-2 py-1 whitespace-pre-wrap">{item.listing_description}</p>
                     </div>
 
-                    {/* Suggested price — primary: min_price_usd × 0.95; fallback: avg_price_usd × 0.95 */}
+                    {/* Suggested price — avg_price_usd × 0.95 (min_price_usd is unreliable: BrickOwl historical min can be very old/low) */}
                     {(() => {
-                      const basePrice = snapshot?.min_price_usd ?? snapshot?.avg_price_usd ?? null
+                      const basePrice = snapshot?.avg_price_usd ?? null
                       if (basePrice == null) return null
                       const suggestedPrice = basePrice * 0.95
-                      const priceLabel = snapshot?.min_price_usd != null
-                        ? `5% below eBay floor of $${snapshot.min_price_usd.toFixed(2)}`
-                        : `5% below eBay avg of $${snapshot!.avg_price_usd!.toFixed(2)}`
+                      const priceLabel = `5% below avg resale of $${basePrice.toFixed(2)}`
                       return (
                         <div className="bg-gray-800 rounded px-2 py-1.5">
                           <p className="text-xs text-gray-400">
