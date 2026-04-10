@@ -47,6 +47,8 @@ export default async function DashboardPage() {
         retirement_date: item.sets.retirement_date,
         retiring_soon_override: item.sets.retiring_soon_override,
         override_retirement_date: item.sets.override_retirement_date,
+        minifig_count: item.sets.minifig_count,
+        minifig_names: item.sets.minifig_names,
         image_url: item.sets.image_url,
         retail_price: retail,
         items: [],
@@ -94,16 +96,19 @@ export default async function DashboardPage() {
     const avgPurchasePrice = group.items.filter(i => i.purchase_price_usd != null).length > 0
       ? group.total_paid / group.items.filter(i => i.purchase_price_usd != null).length
       : null
+    const retirement_status = getRetirementStatus({
+      retirement_date: group.retirement_date ?? null,
+      override_retired: group.override_retired ?? null,
+      retiring_soon_override: group.retiring_soon_override ?? null,
+    })
     const { recommendation, reason } = getRecommendation(snapshot, {
       purchase_price_usd: avgPurchasePrice,
       retired: group.retired,
       sell_threshold_pct: userSettings.price_spike_pct,
       demand_drop_pts: userSettings.demand_drop_pts,
-    })
-    const retirement_status = getRetirementStatus({
+      retirement_status,
       retirement_date: group.retirement_date ?? null,
-      override_retired: group.override_retired ?? null,
-      retiring_soon_override: group.retiring_soon_override ?? null,
+      override_retirement_date: group.override_retirement_date ?? null,
     })
     return {
       ...group,
