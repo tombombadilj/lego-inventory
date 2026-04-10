@@ -3,9 +3,11 @@
  */
 import { NextRequest } from 'next/server'
 import { fetchRetirementDate } from '../lib/brickset'
+import { fetchMinifigs } from '../lib/rebrickable'
 
 jest.mock('../lib/brickset', () => ({ fetchRetirementDate: jest.fn() }))
 const mockFetchRetirementDate = fetchRetirementDate as jest.Mock
+const mockFetchMinifigs = fetchMinifigs as jest.Mock
 
 // Mock supabase service client update chain
 const mockUpdate = jest.fn()
@@ -67,6 +69,7 @@ jest.mock('../lib/rebrickable', () => ({
     piece_count: 1234,
     image_url: 'https://example.com/image.jpg',
   }),
+  fetchMinifigs: jest.fn(),
 }))
 
 jest.mock('next/headers', () => ({
@@ -89,6 +92,7 @@ beforeEach(() => {
   mockSingle.mockResolvedValue({ data: { set_number: '75192', name: 'Test Set' }, error: null })
   mockUpdate.mockReturnValue({ eq: mockEq })
   mockEq.mockResolvedValue({ error: null })
+  mockFetchMinifigs.mockResolvedValue(null)
 })
 
 test('fetchRetirementDate is called and retirement_date is updated when result is non-null', async () => {
@@ -115,4 +119,35 @@ test('fetchRetirementDate is called but DB update is NOT made when it returns nu
     (args) => args[0] && args[0].retirement_date !== undefined
   )
   expect(retirementUpdateCalls).toHaveLength(0)
+})
+
+test('calls fetchMinifigs and updates minifig fields when result is non-null', async () => {
+  mockFetchRetirementDate.mockResolvedValueOnce(new Date('2025-06-30'))
+  mockFetchMinifigs.mockResolvedValueOnce({ minifig_count: 3, minifig_names: 'Owner, Customer, Courier' })
+
+  const { GET } = await import('../app/api/lego-status/route')
+  const response = await GET(makeRequest('75192'))
+
+  expect(response.status).toBe(200)
+  expect(mockFetchMinifigs).toHaveBeenCalled()
+  const minifigUpdateCalls = mockUpdate.mock.calls.filter(
+    (args) => args[0] && args[0].minifig_count !== undefined
+  )
+  expect(minifigUpdateCalls).toHaveLength(1)
+  expect(minifigUpdateCalls[0][0]).toMatchObject({ minifig_count: 3, minifig_names: 'Owner, Customer, Courier' })
+})
+
+test('does not update minifig fields when fetchMinifigs returns null', async () => {
+  mockFetchRetirementDate.mockResolvedValueOnce(new Date('2025-06-30'))
+  // mockFetchMinifigs already returns null by default (from beforeEach)
+
+  const { GET } = await import('../app/api/lego-status/route')
+  const response = await GET(makeRequest('75192'))
+
+  expect(response.status).toBe(200)
+  expect(mockFetchMinifigs).toHaveBeenCalled()
+  const minifigUpdateCalls = mockUpdate.mock.calls.filter(
+    (args) => args[0] && args[0].minifig_count !== undefined
+  )
+  expect(minifigUpdateCalls).toHaveLength(0)
 })

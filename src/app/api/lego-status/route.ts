@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { fetchSetFromRebrickable } from '@/lib/rebrickable'
+import { fetchSetFromRebrickable, fetchMinifigs } from '@/lib/rebrickable'
 import { fetchRetirementDate } from '@/lib/brickset'
 
 export async function GET(request: NextRequest) {
@@ -53,6 +53,15 @@ export async function GET(request: NextRequest) {
       .update({ retirement_date: dateStr })
       .eq('set_number', setNumber)
     // retirement date is supplementary — ignore update errors
+  }
+
+  const minifigData = await fetchMinifigs(setNumber)
+  if (minifigData !== null) {
+    await serviceSupabase
+      .from('sets')
+      .update({ minifig_count: minifigData.minifig_count, minifig_names: minifigData.minifig_names })
+      .eq('set_number', setNumber)
+    // supplementary data — ignore update errors
   }
 
   return NextResponse.json(upserted)
