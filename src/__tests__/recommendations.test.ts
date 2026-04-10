@@ -19,7 +19,6 @@ function makeSnapshot(overrides: Partial<{
 
 function makeCtx(overrides: Partial<{
   purchase_price_usd: number | null
-  retired: boolean
   sell_threshold_pct: number
   demand_drop_pts: number
   retirement_status: 'Retired' | 'Retiring Soon' | 'Active'
@@ -28,7 +27,6 @@ function makeCtx(overrides: Partial<{
 }> = {}) {
   return {
     purchase_price_usd: 100,
-    retired: false,
     sell_threshold_pct: 10,
     demand_drop_pts: 20,
     retirement_status: 'Active' as const,

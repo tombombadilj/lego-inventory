@@ -61,7 +61,7 @@ export function getRecommendation(
 
     // Low demand: check age to decide STRATEGIC HOLD vs LIQUIDATE
     const sixMonthsAgo = new Date()
-    sixMonthsAgo.setDate(sixMonthsAgo.getDate() - 180)
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
     const sixMonthsAgoStr = sixMonthsAgo.toISOString().slice(0, 10)
     const isRecentlyRetired = effectiveRetirementDate !== null && effectiveRetirementDate >= sixMonthsAgoStr
 
