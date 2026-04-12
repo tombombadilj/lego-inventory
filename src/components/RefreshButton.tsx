@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 export default function RefreshButton() {
@@ -9,12 +9,23 @@ export default function RefreshButton() {
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Auto-clear feedback after 5 seconds
+  useEffect(() => {
+    if (!result && !error) return
+    const id = setTimeout(() => {
+      setResult(null)
+      setError(null)
+    }, 5000)
+    return () => clearTimeout(id)
+  }, [result, error])
+
   async function handleRefresh() {
+    const controller = new AbortController()
     setLoading(true)
     setResult(null)
     setError(null)
     try {
-      const res = await fetch('/api/sets/refresh', { method: 'POST' })
+      const res = await fetch('/api/sets/refresh', { method: 'POST', signal: controller.signal })
       if (!res.ok) {
         setError('Refresh failed')
         return
@@ -22,7 +33,8 @@ export default function RefreshButton() {
       const data = await res.json()
       setResult(`Updated ${data.refreshed} set${data.refreshed !== 1 ? 's' : ''}`)
       router.refresh()
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
       setError('Refresh failed')
     } finally {
       setLoading(false)
