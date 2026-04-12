@@ -7,6 +7,7 @@ import AlertsBell from '@/components/AlertsBell'
 import { getRecommendation, getRetirementStatus } from '@/lib/recommendations'
 import type { InventoryItem, GroupedSet } from '@/types/inventory'
 import SearchableInventory from '@/components/SearchableInventory'
+import RefreshButton from '@/components/RefreshButton'
 
 interface PriceSnapshot {
   set_id: string
@@ -137,6 +138,7 @@ export default async function DashboardPage() {
             + Add Sets
           </Link>
           <AlertsBell />
+          <RefreshButton />
           <Link href="/settings" className="text-gray-400 hover:text-white text-sm transition-colors" title="Settings">⚙️</Link>
           <LogoutButton />
         </div>
