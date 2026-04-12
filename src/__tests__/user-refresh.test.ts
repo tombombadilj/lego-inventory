@@ -25,9 +25,11 @@ mockServiceUpdate.mockReturnValue({ eq: mockServiceEq })
 
 let mockSetsData: Array<{ set_number: string; retired: boolean; override_retired: boolean }> = []
 
+const mockServiceSelectOrder = jest.fn()
 const mockServiceSelectIn = jest.fn()
 const mockServiceSelectFn = jest.fn().mockReturnValue({ in: mockServiceSelectIn })
-mockServiceSelectIn.mockImplementation(() => Promise.resolve({ data: mockSetsData, error: null }))
+mockServiceSelectIn.mockReturnValue({ order: mockServiceSelectOrder })
+mockServiceSelectOrder.mockImplementation(() => Promise.resolve({ data: mockSetsData, error: null }))
 
 const mockServiceFrom = jest.fn((table: string) => {
   if (table === 'sets') {
@@ -49,7 +51,8 @@ beforeEach(() => {
   mockServiceEq.mockResolvedValue({ error: null })
   mockServiceUpdate.mockReturnValue({ eq: mockServiceEq })
   mockServiceSelectFn.mockReturnValue({ in: mockServiceSelectIn })
-  mockServiceSelectIn.mockImplementation(() => Promise.resolve({ data: mockSetsData, error: null }))
+  mockServiceSelectIn.mockReturnValue({ order: mockServiceSelectOrder })
+  mockServiceSelectOrder.mockImplementation(() => Promise.resolve({ data: mockSetsData, error: null }))
   mockServiceFrom.mockImplementation((table: string) => {
     if (table === 'sets') {
       return { select: mockServiceSelectFn, update: mockServiceUpdate }

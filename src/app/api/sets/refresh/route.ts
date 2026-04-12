@@ -44,15 +44,16 @@ export async function POST() {
     .from('sets')
     .select('set_number, retired, override_retired')
     .in('set_number', setNumbers)
+    .order('set_number')
 
   if (setsError) return NextResponse.json({ error: setsError.message }, { status: 500 })
 
-  const total = (sets ?? []).length
+  const total = sets!.length
   let skipped_retired = 0
   let refreshed = 0
   const failed: string[] = []
 
-  for (const set of sets ?? []) {
+  for (const set of sets!) {
     if (set.retired || set.override_retired) {
       skipped_retired++
       continue
