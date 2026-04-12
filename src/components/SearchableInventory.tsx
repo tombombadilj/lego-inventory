@@ -14,22 +14,37 @@ const PILL_STYLES: Record<string, string> = {
   NO_DATA: 'bg-gray-700 text-gray-400',
 }
 
+const SELL_LABELS = new Set(['VELOCITY SELL', 'SELL', 'LIQUIDATE'])
+const HOLD_LABELS = new Set(['STRATEGIC HOLD', 'HOLD'])
+
+type FilterTab = 'all' | 'sell' | 'hold'
+
 interface Props {
   groupedSets: GroupedSet[]
 }
 
 export default function SearchableInventory({ groupedSets }: Props) {
   const [query, setQuery] = useState('')
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all')
 
-  const filtered = query.trim()
+  const afterSearch = query.trim()
     ? groupedSets.filter(g =>
         g.set_number.toLowerCase().includes(query.toLowerCase()) ||
         g.name.toLowerCase().includes(query.toLowerCase())
       )
     : groupedSets
 
+  const filtered = activeFilter === 'sell'
+    ? afterSearch.filter(g => SELL_LABELS.has(g.recommendation ?? ''))
+    : activeFilter === 'hold'
+    ? afterSearch.filter(g => HOLD_LABELS.has(g.recommendation ?? ''))
+    : afterSearch
+
   const count = filtered.length
-  const label = `Active Inventory (${count} ${count === 1 ? 'set' : 'sets'})`
+  const label =
+    activeFilter === 'sell' ? `Sell Now (${count} ${count === 1 ? 'set' : 'sets'})`
+    : activeFilter === 'hold' ? `Holding (${count} ${count === 1 ? 'set' : 'sets'})`
+    : `Active Inventory (${count} ${count === 1 ? 'set' : 'sets'})`
 
   if (groupedSets.length === 0) {
     return (
@@ -70,11 +85,34 @@ export default function SearchableInventory({ groupedSets }: Props) {
         )}
       </div>
 
+      {/* Filter tabs */}
+      <div className="flex gap-1 mb-3">
+        {(['all', 'sell', 'hold'] as FilterTab[]).map(tab => {
+          const labels: Record<FilterTab, string> = { all: 'All', sell: 'Sell Now', hold: 'Holding' }
+          const isActive = activeFilter === tab
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveFilter(tab)}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                isActive
+                  ? 'bg-[#DA291C] text-white'
+                  : 'bg-[#2A2A2A] text-gray-400 hover:text-white border border-gray-700'
+              }`}
+            >
+              {labels[tab]}
+            </button>
+          )
+        })}
+      </div>
+
       <h2 className="text-white font-semibold mb-3">{label}</h2>
 
       {filtered.length === 0 ? (
         <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-8 text-center mb-6">
-          <p className="text-gray-400 text-sm">No sets match &ldquo;{query}&rdquo;</p>
+          <p className="text-gray-400 text-sm">
+            {query ? `No sets match "${query}"` : 'No sets in this category'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3 mb-8">
