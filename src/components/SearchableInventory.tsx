@@ -19,6 +19,8 @@ const HOLD_LABELS = new Set(['STRATEGIC HOLD', 'HOLD'])
 
 type FilterTab = 'all' | 'sell' | 'hold'
 
+const TAB_LABELS: Record<FilterTab, string> = { all: 'All', sell: 'Sell Now', hold: 'Holding' }
+
 interface Props {
   groupedSets: GroupedSet[]
 }
@@ -88,19 +90,19 @@ export default function SearchableInventory({ groupedSets }: Props) {
       {/* Filter tabs */}
       <div className="flex gap-1 mb-3">
         {(['all', 'sell', 'hold'] as FilterTab[]).map(tab => {
-          const labels: Record<FilterTab, string> = { all: 'All', sell: 'Sell Now', hold: 'Holding' }
           const isActive = activeFilter === tab
           return (
             <button
               key={tab}
               onClick={() => setActiveFilter(tab)}
+              aria-pressed={isActive}
               className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
                 isActive
                   ? 'bg-[#DA291C] text-white'
                   : 'bg-[#2A2A2A] text-gray-400 hover:text-white border border-gray-700'
               }`}
             >
-              {labels[tab]}
+              {TAB_LABELS[tab]}
             </button>
           )
         })}
