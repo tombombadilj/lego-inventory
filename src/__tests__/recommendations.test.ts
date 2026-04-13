@@ -45,51 +45,51 @@ describe('getRecommendation', () => {
     expect(getRecommendation(makeSnapshot({ avg_price_usd: null }), makeCtx()).recommendation).toBe('NO_DATA')
   })
 
-  test('returns STRATEGIC HOLD for Retiring Soon', () => {
-    expect(getRecommendation(makeSnapshot(), makeCtx({ retirement_status: 'Retiring Soon' })).recommendation).toBe('STRATEGIC HOLD')
+  test('returns HOLD SHORT for Retiring Soon', () => {
+    expect(getRecommendation(makeSnapshot(), makeCtx({ retirement_status: 'Retiring Soon' })).recommendation).toBe('HOLD SHORT')
   })
 
-  test('returns VELOCITY SELL for Retired with high demand (6+ months ago)', () => {
+  test('returns SELL for Retired with high demand (6+ months ago)', () => {
     const date = new Date()
-    date.setDate(date.getDate() - 200) // well past 180 days
+    date.setDate(date.getDate() - 200)
     expect(getRecommendation(
       makeSnapshot({ demand_score: 60, listings_count: 10 }),
       makeCtx({ retirement_status: 'Retired', retirement_date: date.toISOString().slice(0, 10) })
-    ).recommendation).toBe('VELOCITY SELL')
+    ).recommendation).toBe('SELL')
   })
 
-  test('returns VELOCITY SELL for recently Retired with high demand', () => {
+  test('returns SELL for recently Retired with high demand', () => {
     const date = new Date()
-    date.setDate(date.getDate() - 30) // 30 days ago — within 180 days
+    date.setDate(date.getDate() - 30)
     expect(getRecommendation(
       makeSnapshot({ demand_score: 60, listings_count: 10 }),
       makeCtx({ retirement_status: 'Retired', retirement_date: date.toISOString().slice(0, 10) })
-    ).recommendation).toBe('VELOCITY SELL')
+    ).recommendation).toBe('SELL')
   })
 
-  test('returns STRATEGIC HOLD for recently Retired with low demand', () => {
+  test('returns HOLD SHORT for recently Retired with low demand', () => {
     const date = new Date()
-    date.setDate(date.getDate() - 30) // 30 days ago — within 180 days
+    date.setDate(date.getDate() - 30)
     expect(getRecommendation(
       makeSnapshot({ demand_score: 10, listings_count: 3 }),
       makeCtx({ retirement_status: 'Retired', retirement_date: date.toISOString().slice(0, 10) })
-    ).recommendation).toBe('STRATEGIC HOLD')
+    ).recommendation).toBe('HOLD SHORT')
   })
 
-  test('returns LIQUIDATE for Retired 6+ months with low demand', () => {
+  test('returns HOLD for Retired 6+ months with low demand', () => {
     const date = new Date()
-    date.setDate(date.getDate() - 200) // well past 180 days
+    date.setDate(date.getDate() - 200)
     expect(getRecommendation(
       makeSnapshot({ demand_score: 10, listings_count: 3 }),
       makeCtx({ retirement_status: 'Retired', retirement_date: date.toISOString().slice(0, 10) })
-    ).recommendation).toBe('LIQUIDATE')
+    ).recommendation).toBe('HOLD')
   })
 
   test('uses override_retirement_date when present for age calculation', () => {
     const overrideDate = new Date()
-    overrideDate.setDate(overrideDate.getDate() - 200) // force old age
+    overrideDate.setDate(overrideDate.getDate() - 200)
     const recentDate = new Date()
-    recentDate.setDate(recentDate.getDate() - 30) // raw date is recent
+    recentDate.setDate(recentDate.getDate() - 30)
     expect(getRecommendation(
       makeSnapshot({ demand_score: 10, listings_count: 3 }),
       makeCtx({
@@ -97,7 +97,7 @@ describe('getRecommendation', () => {
         retirement_date: recentDate.toISOString().slice(0, 10),
         override_retirement_date: overrideDate.toISOString().slice(0, 10),
       })
-    ).recommendation).toBe('LIQUIDATE') // override makes it old → LIQUIDATE
+    ).recommendation).toBe('HOLD') // override makes it old → HOLD
   })
 
   test('returns SELL for Active + high demand + above threshold', () => {
@@ -155,15 +155,13 @@ describe('getRetirementStatus', () => {
   test('returns Retiring Soon when retirement_date is within 6 months', () => {
     const soon = new Date()
     soon.setMonth(soon.getMonth() + 3)
-    const soonStr = soon.toISOString().slice(0, 10)
-    expect(getRetirementStatus(makeSet({ retirement_date: soonStr }))).toBe('Retiring Soon')
+    expect(getRetirementStatus(makeSet({ retirement_date: soon.toISOString().slice(0, 10) }))).toBe('Retiring Soon')
   })
 
   test('returns Active when retirement_date is beyond 6 months', () => {
     const far = new Date()
     far.setFullYear(far.getFullYear() + 2)
-    const farStr = far.toISOString().slice(0, 10)
-    expect(getRetirementStatus(makeSet({ retirement_date: farStr }))).toBe('Active')
+    expect(getRetirementStatus(makeSet({ retirement_date: far.toISOString().slice(0, 10) }))).toBe('Active')
   })
 
   test('returns Active when all fields are null', () => {

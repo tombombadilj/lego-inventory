@@ -1,4 +1,4 @@
-export type Recommendation = 'SELL' | 'HOLD' | 'STRATEGIC HOLD' | 'VELOCITY SELL' | 'LIQUIDATE' | 'NO_DATA'
+export type Recommendation = 'SELL' | 'HOLD' | 'HOLD LONG' | 'HOLD SHORT' | 'NO_DATA'
 
 export type RetirementStatus = 'Retired' | 'Retiring Soon' | 'Active'
 
@@ -27,6 +27,8 @@ export interface InventoryContext {
 /**
  * Pure function — determines a sell recommendation based on latest price snapshot
  * and the user's inventory context + thresholds.
+ * Used by the listing generation route for prompt context.
+ * The dashboard and set detail page use ai_recommendation from the DB instead.
  */
 export function getRecommendation(
   snapshot: PriceSnapshot | null,
@@ -44,7 +46,7 @@ export function getRecommendation(
 
   if (retirement_status === 'Retiring Soon') {
     return {
-      recommendation: 'STRATEGIC HOLD',
+      recommendation: 'HOLD SHORT',
       reason: 'Set is retiring soon — prices typically spike after retirement. Hold for better returns.',
     }
   }
@@ -54,12 +56,11 @@ export function getRecommendation(
 
     if (highDemand) {
       return {
-        recommendation: 'VELOCITY SELL',
+        recommendation: 'SELL',
         reason: `Retired set at ${avgStr} avg with high demand (score ${demand_score}/100). Market is hot — move now for maximum return.`,
       }
     }
 
-    // Low demand: check age to decide STRATEGIC HOLD vs LIQUIDATE
     const sixMonthsAgo = new Date()
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
     const sixMonthsAgoStr = sixMonthsAgo.toISOString().slice(0, 10)
@@ -67,14 +68,14 @@ export function getRecommendation(
 
     if (isRecentlyRetired) {
       return {
-        recommendation: 'STRATEGIC HOLD',
+        recommendation: 'HOLD SHORT',
         reason: "Set retired recently — demand hasn't peaked yet. Hold and monitor for price appreciation.",
       }
     }
 
     return {
-      recommendation: 'LIQUIDATE',
-      reason: `Retired 6+ months with low demand (score ${demand_score}/100). Price may be softening — consider recovering capital now.`,
+      recommendation: 'HOLD',
+      reason: `Retired 6+ months with low demand (score ${demand_score}/100). Monitor for recovery or consider selling.`,
     }
   }
 
@@ -101,24 +102,19 @@ export function getRecommendation(
 
 /**
  * Pure function — determines retirement status based on override flags and retirement date.
- * Priority: manual Retired > auto-Retired (past date) > manual Retiring Soon > auto-Retiring Soon (within 6 months) > Active.
  */
 export function getRetirementStatus(set: {
   retirement_date: string | null
   override_retired: boolean | null
   retiring_soon_override: boolean | null
 }): RetirementStatus {
-  // Manual Retired override wins first
   if (set.override_retired) return 'Retired'
 
-  // Auto-Retired: past retirement_date (beats retiring_soon_override per spec priority table)
   const todayStr = new Date().toISOString().slice(0, 10)
   if (set.retirement_date && set.retirement_date <= todayStr) return 'Retired'
 
-  // Manual Retiring Soon override (only applies when not already auto-Retired)
   if (set.retiring_soon_override) return 'Retiring Soon'
 
-  // Auto Retiring Soon: future date within 6 months
   if (set.retirement_date) {
     const sixMonthsFromNow = new Date()
     sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6)
