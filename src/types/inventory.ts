@@ -28,6 +28,9 @@ export interface InventoryItem {
     override_retirement_date: string | null
     minifig_count: number | null
     minifig_names: string | null
+    ai_recommendation: string | null
+    ai_analysis: string | null
+    ai_analyzed_at: string | null
   }
 }
 
@@ -50,7 +53,10 @@ export interface GroupedSet {
   total_paid: number
   // Pre-computed server-side from latest price snapshot
   avg_price_usd?: number | null
-  recommendation?: 'SELL' | 'HOLD' | 'STRATEGIC HOLD' | 'VELOCITY SELL' | 'LIQUIDATE' | 'NO_DATA'
+  recommendation?: 'SELL' | 'HOLD' | 'HOLD LONG' | 'HOLD SHORT' | 'NO_DATA'
   recommendation_reason?: string
   retirement_status?: 'Retired' | 'Retiring Soon' | 'Active'
+  ai_recommendation?: string | null
+  ai_analysis?: string | null
+  ai_analyzed_at?: string | null
 }
