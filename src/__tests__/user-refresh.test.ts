@@ -66,7 +66,7 @@ beforeEach(() => {
       return {
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockResolvedValue({
-            data: [{ sets: { set_number: '10300' } }],
+            data: [{ sets: [{ set_number: '10300' }] }],
             error: null,
           }),
         }),

@@ -25,7 +25,7 @@ export async function POST() {
   const setNumbers = [
     ...new Set(
       (inventoryItems ?? [])
-        .map((i: { sets: { set_number: string } | null }) => i.sets?.set_number)
+        .map((i: { sets: { set_number: string }[] }) => i.sets?.[0]?.set_number)
         .filter((n): n is string => Boolean(n))
     ),
   ]
