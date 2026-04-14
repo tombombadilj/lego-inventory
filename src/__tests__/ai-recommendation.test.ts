@@ -77,9 +77,9 @@ async function callPost(setNumber: string) {
   jest.mock('@supabase/supabase-js', () => ({
     createClient: jest.fn(() => ({ from: mockServiceFrom })),
   }))
-  const { POST } = await import('../app/api/sets/[set_number]/ai-recommendation/route')
+  const { POST } = await import('../app/api/sets/[id]/ai-recommendation/route')
   const req = new NextRequest(`http://localhost/api/sets/${setNumber}/ai-recommendation`, { method: 'POST' })
-  return POST(req, { params: Promise.resolve({ set_number: setNumber }) })
+  return POST(req, { params: Promise.resolve({ id: setNumber }) })
 }
 
 const mockSet = {

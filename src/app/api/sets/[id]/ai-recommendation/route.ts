@@ -6,13 +6,13 @@ import { getRetirementStatus } from '@/lib/recommendations'
 
 export async function POST(
   _request: NextRequest,
-  { params }: { params: Promise<{ set_number: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { set_number } = await params
+  const { id: set_number } = await params
 
   const serviceSupabase = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
