@@ -7,7 +7,9 @@ import { getRetirementStatus } from '@/lib/recommendations'
 /**
  * POST /api/admin/recommendations/refresh
  * Backfills AI analysis for all sets where ai_recommendation IS NULL.
- * Admin only. Run once after first deploy via browser console:
+ * Processes up to BATCH_SIZE sets per invocation to avoid Vercel timeout.
+ * Run multiple times if remaining > 0.
+ * Admin only. Run via browser console:
  *   fetch('/api/admin/recommendations/refresh', { method: 'POST' }).then(r=>r.json()).then(console.log)
  */
 export async function POST() {
@@ -25,13 +27,16 @@ export async function POST() {
     .order('set_number')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!sets || sets.length === 0) return NextResponse.json({ total: 0, refreshed: 0, failed: [] })
+  if (!sets || sets.length === 0) return NextResponse.json({ total: 0, refreshed: 0, failed: [], remaining: 0 })
 
-  const total = sets.length
+  const BATCH_SIZE = 5
+  const batch = sets.slice(0, BATCH_SIZE)
+  const remaining = sets.length - batch.length
+
   let refreshed = 0
   const failed: string[] = []
 
-  for (const set of sets) {
+  for (const set of batch) {
     try {
       // Use any user's inventory items for cost/condition context (admin backfill)
       const { data: items } = await serviceSupabase
@@ -96,5 +101,5 @@ export async function POST() {
     }
   }
 
-  return NextResponse.json({ total, refreshed, failed })
+  return NextResponse.json({ total: sets.length, refreshed, failed, remaining })
 }

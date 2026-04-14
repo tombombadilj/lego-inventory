@@ -187,7 +187,7 @@ export default function SearchableInventory({ groupedSets }: Props) {
                         RETIRING SOON
                       </span>
                     )}
-                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES.NO_DATA}`}>NO DATA</span>
+                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${PILL_STYLES.NO_DATA}`}>NO_DATA</span>
                   </>
                 )}
               </div>

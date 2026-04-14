@@ -106,6 +106,7 @@ export default async function DashboardPage() {
       ...group,
       avg_price_usd: snapshot?.avg_price_usd ?? null,
       recommendation: (group.ai_recommendation as GroupedSet['recommendation']) ?? 'NO_DATA',
+      recommendation_reason: '',
       retirement_status,
     }
   })

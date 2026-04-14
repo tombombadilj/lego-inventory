@@ -96,7 +96,7 @@ test('returns { total: 0 } when no sets need backfill', async () => {
   mockSetsData = []
   const res = await callRefresh()
   const json = await res.json()
-  expect(json).toEqual({ total: 0, refreshed: 0, failed: [] })
+  expect(json).toEqual({ total: 0, refreshed: 0, failed: [], remaining: 0 })
   expect(mockGenerateAiRecommendation).not.toHaveBeenCalled()
 })
 
