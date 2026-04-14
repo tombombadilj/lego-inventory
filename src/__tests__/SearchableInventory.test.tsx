@@ -168,7 +168,9 @@ describe('SearchableInventory', () => {
   describe('filter tabs', () => {
     function makeMixedSets() {
       const base = {
-        set_id: '',
+        set_id: 's1',
+        set_number: '10270',
+        name: 'Bookshop',
         theme: 'Icons',
         piece_count: 2504,
         retired: false,
@@ -179,16 +181,19 @@ describe('SearchableInventory', () => {
         minifig_count: null,
         minifig_names: null,
         image_url: null,
-        retail_price: 179.99,
+        retail_price: 180,
         items: [],
-        total_paid: 150,
+        total_paid: 0,
+        avg_price_usd: null,
+        retirement_status: 'Active' as const,
+        recommendation: 'HOLD' as const,
       }
       return [
-        { ...base, set_id: 's1', set_number: '10270', name: 'Bookshop', recommendation: 'VELOCITY SELL' as const },
-        { ...base, set_id: 's2', set_number: '10297', name: 'Boutique Hotel', recommendation: 'SELL' as const },
-        { ...base, set_id: 's6', set_number: '10182', name: 'Cafe Corner', recommendation: 'LIQUIDATE' as const },
+        { ...base, set_id: 's1', set_number: '10270', name: 'Bookshop', recommendation: 'SELL' as const },
+        { ...base, set_id: 's2', set_number: '10297', name: 'Boutique Hotel', recommendation: 'HOLD LONG' as const },
+        { ...base, set_id: 's6', set_number: '10182', name: 'Cafe Corner', recommendation: 'HOLD SHORT' as const },
         { ...base, set_id: 's3', set_number: '10255', name: 'Assembly Square', recommendation: 'HOLD' as const },
-        { ...base, set_id: 's4', set_number: '10315', name: 'Tranquil Garden', recommendation: 'STRATEGIC HOLD' as const },
+        { ...base, set_id: 's4', set_number: '10315', name: 'Tranquil Garden', recommendation: 'HOLD' as const },
         { ...base, set_id: 's5', set_number: '10698', name: 'Large Creative Brick Box', recommendation: 'NO_DATA' as const },
       ]
     }
@@ -203,23 +208,23 @@ describe('SearchableInventory', () => {
       expect(screen.getByText('Large Creative Brick Box')).toBeInTheDocument()
     })
 
-    it('Sell Now tab shows only VELOCITY SELL, SELL, LIQUIDATE sets', () => {
+    it('Sell Now tab shows only SELL sets', () => {
       render(<SearchableInventory groupedSets={makeMixedSets()} />)
       fireEvent.click(screen.getByRole('button', { name: /sell now/i }))
       expect(screen.getByText('Bookshop')).toBeInTheDocument()
-      expect(screen.getByText('Boutique Hotel')).toBeInTheDocument()
-      expect(screen.getByText('Cafe Corner')).toBeInTheDocument()
+      expect(screen.queryByText('Boutique Hotel')).not.toBeInTheDocument()
+      expect(screen.queryByText('Cafe Corner')).not.toBeInTheDocument()
       expect(screen.queryByText('Assembly Square')).not.toBeInTheDocument()
       expect(screen.queryByText('Tranquil Garden')).not.toBeInTheDocument()
       expect(screen.queryByText('Large Creative Brick Box')).not.toBeInTheDocument()
     })
 
-    it('Holding tab shows only STRATEGIC HOLD, HOLD sets', () => {
+    it('Holding tab shows only HOLD, HOLD LONG, HOLD SHORT sets', () => {
       render(<SearchableInventory groupedSets={makeMixedSets()} />)
       fireEvent.click(screen.getByRole('button', { name: /holding/i }))
       expect(screen.queryByText('Bookshop')).not.toBeInTheDocument()
-      expect(screen.queryByText('Boutique Hotel')).not.toBeInTheDocument()
-      expect(screen.queryByText('Cafe Corner')).not.toBeInTheDocument()
+      expect(screen.getByText('Boutique Hotel')).toBeInTheDocument()
+      expect(screen.getByText('Cafe Corner')).toBeInTheDocument()
       expect(screen.getByText('Assembly Square')).toBeInTheDocument()
       expect(screen.getByText('Tranquil Garden')).toBeInTheDocument()
       expect(screen.queryByText('Large Creative Brick Box')).not.toBeInTheDocument()
@@ -237,21 +242,21 @@ describe('SearchableInventory', () => {
     it('Sell Now tab shows count of matching sets', () => {
       render(<SearchableInventory groupedSets={makeMixedSets()} />)
       fireEvent.click(screen.getByRole('button', { name: /sell now/i }))
-      expect(screen.getByText(/sell now \(3 sets\)/i)).toBeInTheDocument()
+      expect(screen.getByText(/sell now \(1 set\)/i)).toBeInTheDocument()
     })
 
     it('Holding tab shows count of matching sets', () => {
       render(<SearchableInventory groupedSets={makeMixedSets()} />)
       fireEvent.click(screen.getByRole('button', { name: /holding/i }))
-      expect(screen.getByText(/holding \(2 sets\)/i)).toBeInTheDocument()
+      expect(screen.getByText(/holding \(4 sets\)/i)).toBeInTheDocument()
     })
 
     it('search and tab filters compose — Sell Now + search narrows further', () => {
       render(<SearchableInventory groupedSets={makeMixedSets()} />)
       fireEvent.click(screen.getByRole('button', { name: /sell now/i }))
-      fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'boutique' } })
-      expect(screen.queryByText('Bookshop')).not.toBeInTheDocument()
-      expect(screen.getByText('Boutique Hotel')).toBeInTheDocument()
+      fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'book' } })
+      expect(screen.getByText('Bookshop')).toBeInTheDocument()
+      expect(screen.queryByText('Boutique Hotel')).not.toBeInTheDocument()
     })
   })
 })

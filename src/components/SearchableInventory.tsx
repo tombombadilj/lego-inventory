@@ -6,16 +6,15 @@ import Link from 'next/link'
 import type { GroupedSet } from '@/types/inventory'
 
 const PILL_STYLES: Record<string, string> = {
-  SELL: 'bg-green-900/60 text-green-400',
-  HOLD: 'bg-yellow-900/50 text-yellow-400',
-  'VELOCITY SELL': 'bg-green-600 text-white',
-  'STRATEGIC HOLD': 'bg-purple-900/50 text-purple-400',
-  LIQUIDATE: 'bg-orange-900/50 text-orange-400',
-  NO_DATA: 'bg-gray-700 text-gray-400',
+  SELL:         'bg-green-900/60 text-green-400',
+  HOLD:         'bg-yellow-900/50 text-yellow-400',
+  'HOLD LONG':  'bg-purple-900/50 text-purple-400',
+  'HOLD SHORT': 'bg-blue-900/50 text-blue-400',
+  NO_DATA:      'bg-gray-700 text-gray-400',
 }
 
-const SELL_LABELS = new Set(['VELOCITY SELL', 'SELL', 'LIQUIDATE'])
-const HOLD_LABELS = new Set(['STRATEGIC HOLD', 'HOLD'])
+const SELL_LABELS = new Set(['SELL'])
+const HOLD_LABELS = new Set(['HOLD', 'HOLD LONG', 'HOLD SHORT'])
 
 type FilterTab = 'all' | 'sell' | 'hold'
 
