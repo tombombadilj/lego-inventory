@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
 import AlertsBell from '@/components/AlertsBell'
-import { getRecommendation, getRetirementStatus } from '@/lib/recommendations'
+import { getRetirementStatus } from '@/lib/recommendations'
 import type { InventoryItem, GroupedSet } from '@/types/inventory'
 import SearchableInventory from '@/components/SearchableInventory'
 import RefreshButton from '@/components/RefreshButton'
@@ -50,6 +50,9 @@ export default async function DashboardPage() {
         override_retirement_date: item.sets.override_retirement_date,
         minifig_count: item.sets.minifig_count,
         minifig_names: item.sets.minifig_names,
+        ai_recommendation: item.sets.ai_recommendation ?? null,
+        ai_analysis: item.sets.ai_analysis ?? null,
+        ai_analyzed_at: item.sets.ai_analyzed_at ?? null,
         image_url: item.sets.image_url,
         retail_price: retail,
         items: [],
@@ -94,27 +97,15 @@ export default async function DashboardPage() {
   // Pre-compute recommendations server-side and embed in groupedSets
   const enrichedSets: GroupedSet[] = groupedSets.map(group => {
     const snapshot = snapshotMap[group.set_id] ?? null
-    const avgPurchasePrice = group.items.filter(i => i.purchase_price_usd != null).length > 0
-      ? group.total_paid / group.items.filter(i => i.purchase_price_usd != null).length
-      : null
     const retirement_status = getRetirementStatus({
       retirement_date: group.retirement_date ?? null,
       override_retired: group.override_retired ?? null,
       retiring_soon_override: group.retiring_soon_override ?? null,
     })
-    const { recommendation, reason } = getRecommendation(snapshot, {
-      purchase_price_usd: avgPurchasePrice,
-      sell_threshold_pct: userSettings.price_spike_pct,
-      demand_drop_pts: userSettings.demand_drop_pts,
-      retirement_status,
-      retirement_date: group.retirement_date ?? null,
-      override_retirement_date: group.override_retirement_date ?? null,
-    })
     return {
       ...group,
       avg_price_usd: snapshot?.avg_price_usd ?? null,
-      recommendation,
-      recommendation_reason: reason,
+      recommendation: (group.ai_recommendation as GroupedSet['recommendation']) ?? 'NO_DATA',
       retirement_status,
     }
   })
