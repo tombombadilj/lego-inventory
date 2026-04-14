@@ -13,7 +13,14 @@ import { getRetirementStatus } from '@/lib/recommendations'
  *   fetch('/api/admin/recommendations/refresh', { method: 'POST' }).then(r=>r.json()).then(console.log)
  */
 export async function POST() {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  try {
+    const adminCheck = await isAdmin()
+    console.log('[admin/refresh] isAdmin:', adminCheck)
+    if (!adminCheck) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  } catch (e) {
+    console.error('[admin/refresh] isAdmin threw:', e)
+    return NextResponse.json({ error: 'Auth check failed', detail: String(e) }, { status: 500 })
+  }
 
   const serviceSupabase = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
