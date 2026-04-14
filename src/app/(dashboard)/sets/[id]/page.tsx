@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { getRecommendation, getRetirementStatus } from '@/lib/recommendations'
 import { createClient } from '@/lib/supabase/client'
 
 interface InventoryItem {
@@ -45,18 +44,20 @@ interface SetGroup {
   override_retirement_date: string | null
   minifig_count: number | null
   image_url: string | null
+  ai_recommendation: string | null
+  ai_analysis: string | null
+  ai_analyzed_at: string | null
   items: InventoryItem[]
 }
 
 type Modal = { type: 'edit' | 'sell'; item: InventoryItem } | null
 
 const PILL_STYLES = {
-  SELL: 'bg-green-900/60 text-green-400 border-green-700',
-  HOLD: 'bg-yellow-900/50 text-yellow-400 border-yellow-700',
-  'STRATEGIC HOLD': 'bg-blue-900/50 text-blue-400 border-blue-700',
-  'VELOCITY SELL': 'bg-orange-900/50 text-orange-400 border-orange-700',
-  LIQUIDATE: 'bg-red-900/60 text-red-400 border-red-700',
-  NO_DATA: 'bg-gray-700 text-gray-400 border-gray-600',
+  SELL:         'bg-green-900/60 text-green-400 border-green-700',
+  HOLD:         'bg-yellow-900/50 text-yellow-400 border-yellow-700',
+  'HOLD LONG':  'bg-purple-900/50 text-purple-400 border-purple-700',
+  'HOLD SHORT': 'bg-blue-900/50 text-blue-400 border-blue-700',
+  NO_DATA:      'bg-gray-700 text-gray-400 border-gray-600',
 }
 
 export default function SetDetailPage() {
@@ -75,6 +76,7 @@ export default function SetDetailPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [overrideDateInput, setOverrideDateInput] = useState<string>('')
   const [listingLoading, setListingLoading] = useState<Record<string, boolean>>({})
+  const [aiLoading, setAiLoading] = useState(false)
 
   async function loadData() {
     const res = await fetch('/api/sets?all=true')
@@ -96,6 +98,9 @@ export default function SetDetailPage() {
       override_retirement_date: s.override_retirement_date ?? null,
       minifig_count: s.minifig_count ?? null,
       image_url: s.image_url,
+      ai_recommendation: s.ai_recommendation ?? null,
+      ai_analysis: s.ai_analysis ?? null,
+      ai_analyzed_at: s.ai_analyzed_at ?? null,
       items: filtered.map((i: { id: string; purchased_from: string | null; purchase_price_usd: number | null; purchase_date: string | null; condition: string; notes: string | null; sold: boolean; sold_price_usd: number | null; sold_date: string | null; sold_via: string | null; listing_title?: string | null; listing_description?: string | null }) => ({
         id: i.id,
         purchased_from: i.purchased_from,
@@ -223,6 +228,21 @@ export default function SetDetailPage() {
       return
     }
     loadData()
+  }
+
+  async function generateAiAnalysis() {
+    setAiLoading(true)
+    try {
+      const res = await fetch(`/api/sets/${setNumber}/ai-recommendation`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error ?? 'Failed to generate analysis. Please try again.')
+        return
+      }
+      loadData()
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   if (loading) return (
@@ -364,79 +384,99 @@ export default function SetDetailPage() {
 
           {priceLoading ? (
             <p className="text-gray-500 text-sm animate-pulse">Fetching market data…</p>
-          ) : (() => {
-            const avgPurchase = group
-              ? group.items.filter(i => i.purchase_price_usd != null).reduce((s, i) => s + (i.purchase_price_usd ?? 0), 0) /
-                Math.max(group.items.filter(i => i.purchase_price_usd != null).length, 1)
-              : null
-            const { recommendation, reason } = getRecommendation(snapshot, {
-              purchase_price_usd: avgPurchase,
-              sell_threshold_pct: userSettings.price_spike_pct,
-              demand_drop_pts: userSettings.demand_drop_pts,
-              retirement_status: group ? getRetirementStatus({
-                retirement_date: group.retirement_date,
-                override_retired: group.override_retired,
-                retiring_soon_override: group.retiring_soon_override ?? null,
-              }) : 'Active',
-              retirement_date: group?.retirement_date ?? null,
-              override_retirement_date: group?.override_retirement_date ?? null,
-            })
-
-            return snapshot?.avg_price_usd != null ? (
-              <>
-                {/* Price row */}
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  <div className="text-center">
-                    <p className="text-xs text-gray-400 mb-0.5">Avg</p>
-                    <p className="text-white font-bold">${snapshot.avg_price_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                  </div>
-                  <div className="text-center border-x border-gray-700">
-                    <p className="text-xs text-gray-400 mb-0.5">Min</p>
-                    <p className="text-green-400 font-medium">${(snapshot.min_price_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-gray-400 mb-0.5">Max</p>
-                    <p className="text-red-400 font-medium">${(snapshot.max_price_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                  </div>
+          ) : snapshot?.avg_price_usd != null ? (
+            <>
+              {/* Price row */}
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="text-center">
+                  <p className="text-xs text-gray-400 mb-0.5">Avg</p>
+                  <p className="text-white font-bold">${snapshot.avg_price_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
-
-                {/* Demand row */}
-                <div className="flex items-center gap-3 mb-3 text-xs text-gray-400">
-                  <span
-                    title="How scarce sealed copies are vs. the total market. Higher = fewer New listings relative to Used, meaning sealed sets are being absorbed quickly."
-                    className="cursor-help border-b border-dashed border-gray-600"
-                  >
-                    Demand score
-                  </span>
-                  <span className="text-white font-medium">{snapshot.demand_score}/100</span>
-                  <span className="text-gray-600">·</span>
-                  <span>{snapshot.listings_count} active New listings</span>
+                <div className="text-center border-x border-gray-700">
+                  <p className="text-xs text-gray-400 mb-0.5">Min</p>
+                  <p className="text-green-400 font-medium">${(snapshot.min_price_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
-
-                {/* Demand bar */}
-                <div className="w-full bg-gray-700 rounded-full h-1.5 mb-2">
-                  <div
-                    className={`h-1.5 rounded-full transition-all ${snapshot.demand_score >= 60 ? 'bg-green-400' : snapshot.demand_score >= 30 ? 'bg-yellow-400' : 'bg-orange-400'}`}
-                    style={{ width: `${snapshot.demand_score}%` }}
-                  />
+                <div className="text-center">
+                  <p className="text-xs text-gray-400 mb-0.5">Max</p>
+                  <p className="text-red-400 font-medium">${(snapshot.max_price_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
-                <p className="text-gray-600 text-xs mb-3">
-                  How scarce sealed copies are vs. the total market — higher means fewer New listings relative to Used, so sealed sets are being absorbed quickly.
-                </p>
-
-                {/* Recommendation */}
-                <div className={`flex items-start gap-2 p-3 rounded-lg border ${PILL_STYLES[recommendation as keyof typeof PILL_STYLES] ?? PILL_STYLES.NO_DATA}`}>
-                  <span className="font-bold text-sm flex-shrink-0">{recommendation}</span>
-                  <span className="text-xs opacity-90">{reason}</span>
-                </div>
-              </>
-            ) : (
-              <div className={`flex items-center gap-2 p-3 rounded-lg border ${PILL_STYLES.NO_DATA}`}>
-                <span className="font-bold text-sm">NO DATA</span>
-                <span className="text-xs opacity-75">No resale data found. Prices will appear once eBay or BrickOwl data is fetched.</span>
               </div>
-            )
-          })()}
+
+              {/* Demand row */}
+              <div className="flex items-center gap-3 mb-3 text-xs text-gray-400">
+                <span
+                  title="How scarce sealed copies are vs. the total market. Higher = fewer New listings relative to Used, meaning sealed sets are being absorbed quickly."
+                  className="cursor-help border-b border-dashed border-gray-600"
+                >
+                  Demand score
+                </span>
+                <span className="text-white font-medium">{snapshot.demand_score}/100</span>
+                <span className="text-gray-600">·</span>
+                <span>{snapshot.listings_count} active New listings</span>
+              </div>
+
+              {/* Demand bar */}
+              <div className="w-full bg-gray-700 rounded-full h-1.5 mb-2">
+                <div
+                  className={`h-1.5 rounded-full transition-all ${snapshot.demand_score >= 60 ? 'bg-green-400' : snapshot.demand_score >= 30 ? 'bg-yellow-400' : 'bg-orange-400'}`}
+                  style={{ width: `${snapshot.demand_score}%` }}
+                />
+              </div>
+              <p className="text-gray-600 text-xs">
+                How scarce sealed copies are vs. the total market — higher means fewer New listings relative to Used, so sealed sets are being absorbed quickly.
+              </p>
+            </>
+          ) : (
+            <div className={`flex items-center gap-2 p-3 rounded-lg border ${PILL_STYLES.NO_DATA}`}>
+              <span className="font-bold text-sm">NO DATA</span>
+              <span className="text-xs opacity-75">No resale data found. Prices will appear once eBay or BrickOwl data is fetched.</span>
+            </div>
+          )}
+        </div>
+
+        {/* AI Analysis card */}
+        <div className="bg-[#2A2A2A] border border-gray-700 rounded-xl p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-white font-semibold text-sm">AI Investment Analysis</p>
+            {group.ai_analyzed_at && (
+              <p className="text-gray-500 text-xs">
+                Analysed {new Date(group.ai_analyzed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </p>
+            )}
+          </div>
+
+          {aiLoading ? (
+            <p className="text-gray-500 text-sm animate-pulse">Analysing…</p>
+          ) : group.ai_recommendation ? (
+            <>
+              <div className={`flex items-center gap-2 p-3 rounded-lg border mb-3 ${PILL_STYLES[group.ai_recommendation as keyof typeof PILL_STYLES] ?? PILL_STYLES.NO_DATA}`}>
+                <span className="font-bold text-sm">{group.ai_recommendation}</span>
+              </div>
+              <details>
+                <summary className="text-xs text-gray-400 hover:text-white cursor-pointer mb-2 select-none">
+                  View full analysis
+                </summary>
+                <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono bg-gray-900 rounded p-3 mt-2 overflow-x-auto">
+                  {group.ai_analysis}
+                </pre>
+              </details>
+              <button
+                onClick={generateAiAnalysis}
+                disabled={aiLoading}
+                className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50 mt-2 block"
+              >
+                Re-analyse
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={generateAiAnalysis}
+              disabled={aiLoading}
+              className="w-full text-xs border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {aiLoading ? 'Analysing…' : '✨ Analyse Investment'}
+            </button>
+          )}
         </div>
 
         {/* Your copies */}
